@@ -1,0 +1,9 @@
+python-telegram-bot>=20.0
+yadisk>=3.0.0
+PyMuPDF>=1.27.0
+Pillow>=10.0.0
+pydantic-settings>=2.0.0
+loguru>=0.7.0
+pdfplumber>=0.10.0
+requests>=2.31.0
+zxing-cpp

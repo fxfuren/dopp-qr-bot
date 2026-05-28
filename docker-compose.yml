@@ -1,0 +1,70 @@
+x-common: &common
+  ulimits:
+    nofile:
+      soft: 1048576
+      hard: 1048576
+  restart: unless-stopped
+  networks:
+    - dopp-qr-bot-network
+
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: 100m
+      max-file: 5
+
+x-env: &env
+  env_file: .env
+
+services:
+  dopp-qr-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BUILDKIT_INLINE_CACHE: 1
+    image: dopp-qr-bot:latest
+    container_name: dopp-qr-bot
+    hostname: dopp-qr-bot
+    init: true
+    stop_grace_period: 30s
+    <<: [*common, *logging, *env]
+    volumes:
+      - dopp-qr-bot-tmp:/tmp/dopp_bot
+      - dopp-qr-bot-logs:/app/logs
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100M
+    healthcheck:
+      test: ['CMD', 'python', '-c', 'import sys; sys.exit(0)']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  dopp-qr-bot-network:
+    name: dopp-qr-bot-network
+    driver: bridge
+    external: false
+
+volumes:
+  dopp-qr-bot-tmp:
+    name: dopp-qr-bot-tmp
+    driver: local
+    external: false
+  dopp-qr-bot-logs:
+    name: dopp-qr-bot-logs
+    driver: local
+    external: false
