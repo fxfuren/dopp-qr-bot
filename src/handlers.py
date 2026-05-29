@@ -9,7 +9,7 @@ from loguru import logger
 
 from .config import settings
 from .yadisk_client import YaDiskClient
-from .pdf_processor import extract_text_from_pdf, find_spec_number_in_text, extract_qr_from_pdf
+from .pdf_processor import extract_text_from_pdf, find_spec_number_in_text, extract_qr_from_pdf, extract_vehicle_registration
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -115,6 +115,9 @@ async def handle_spec_number(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 if find_spec_number_in_text(text, spec_number):
                     logger.info(f"Spec number {spec_number} found in {pdf_filename}")
                     
+                    # Extract vehicle registration number
+                    vehicle_reg = extract_vehicle_registration(text)
+                    
                     # Extract QR code with auto-detection
                     try:
                         # Use auto-detection (no manual coordinates needed)
@@ -136,7 +139,8 @@ async def handle_spec_number(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     
                     qr_codes.append({
                         'path': local_qr_path,
-                        'filename': clean_filename
+                        'filename': clean_filename,
+                        'vehicle_reg': vehicle_reg
                     })
                 else:
                     logger.debug(f"Spec number {spec_number} not found in {pdf_filename}")
@@ -150,20 +154,29 @@ async def handle_spec_number(update: Update, context: ContextTypes.DEFAULT_TYPE)
             try:
                 if len(qr_codes) == 1:
                     # Send single QR code
-                    with open(qr_codes[0]['path'], 'rb') as qr_file:
+                    qr_data = qr_codes[0]
+                    caption = f"📄 {qr_data['filename']}"
+                    if qr_data['vehicle_reg']:
+                        caption += f"\n🚗 АВТО: {qr_data['vehicle_reg']}"
+                    
+                    with open(qr_data['path'], 'rb') as qr_file:
                         await update.message.reply_photo(
                             photo=qr_file,
-                            caption=f"📄 {qr_codes[0]['filename']}"
+                            caption=caption
                         )
                 else:
                     # Send multiple QR codes as media group with captions
                     media_group = []
                     for qr_data in qr_codes:
+                        caption = f"📄 {qr_data['filename']}"
+                        if qr_data['vehicle_reg']:
+                            caption += f"\n🚗 АВТО: {qr_data['vehicle_reg']}"
+                        
                         with open(qr_data['path'], 'rb') as qr_file:
                             media_group.append(
                                 InputMediaPhoto(
                                     media=qr_file.read(),
-                                    caption=f"📄 {qr_data['filename']}"
+                                    caption=caption
                                 )
                             )
                     

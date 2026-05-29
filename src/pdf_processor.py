@@ -109,6 +109,36 @@ def find_spec_number_in_text(text: str, search_number: str) -> bool:
     return match is not None
 
 
+def extract_vehicle_registration(text: str) -> Optional[str]:
+    """
+    Extract vehicle registration number from PDF text.
+    
+    Looks for pattern: "4.1ААВТО:РЕГИСТРАЦИОННЫЙЗНАК" followed by the registration number.
+    
+    Args:
+        text: Text extracted from PDF
+        
+    Returns:
+        Vehicle registration number or None if not found
+    """
+    if not text:
+        return None
+    
+    # Pattern to find vehicle registration number
+    # Looks for "4.1ААВТО:РЕГИСТРАЦИОННЫЙЗНАК" followed by optional "4.1БНОМЕРПРИЦЕПА" and then the registration number
+    # The registration number is on the next line after these headers
+    pattern = r'4\.1ААВТО:РЕГИСТРАЦИОННЫЙЗНАК\s+4\.1БНОМЕРПРИЦЕПА\s+([A-Z0-9]+)'
+    
+    match = re.search(pattern, text, re.IGNORECASE)
+    if match:
+        reg_number = match.group(1).strip()
+        logger.debug(f"Found vehicle registration: {reg_number}")
+        return reg_number
+    
+    logger.debug("Vehicle registration number not found in text")
+    return None
+
+
 async def extract_qr_from_pdf(
     pdf_path: str,
     output_path: str,
