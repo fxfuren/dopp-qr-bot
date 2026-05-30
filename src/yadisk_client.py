@@ -1,5 +1,6 @@
 """Yandex Disk client for file operations."""
 import asyncio
+import re
 from typing import List
 
 import yadisk
@@ -21,9 +22,12 @@ class YaDiskClient:
         self.folder_path = folder_path
         logger.info(f"YaDisk client initialized for folder: {folder_path}")
     
-    async def list_all_pdf_files(self) -> List[str]:
+    async def list_all_pdf_files(self, spec_number: str = None) -> List[str]:
         """
-        List all PDF files in the configured folder.
+        List all PDF files in the configured folder, optionally filtered by spec number.
+        
+        Args:
+            spec_number: Optional specification number to filter files by filename
         
         Returns:
             List of full paths to PDF files
@@ -41,13 +45,18 @@ class YaDiskClient:
                 # List all items in the folder
                 items = list(self.client.listdir(self.folder_path))
                 
-                # Filter only PDF files (optionally filter by "ДОПП" prefix)
+                # Filter only PDF files
                 pdf_files = []
                 for item in items:
                     if item.type == "file" and item.name.lower().endswith(".pdf"):
                         # Optionally filter by prefix
                         if item.name.startswith("ДОПП"):
-                            pdf_files.append(item.path)
+                            # If spec_number provided, filter by filename
+                            if spec_number:
+                                if self._filename_matches_spec(item.name, spec_number):
+                                    pdf_files.append(item.path)
+                            else:
+                                pdf_files.append(item.path)
                 
                 logger.info(f"Found {len(pdf_files)} PDF files in {self.folder_path}")
                 return pdf_files
@@ -64,6 +73,30 @@ class YaDiskClient:
         
         # Run in thread pool to avoid blocking
         return await asyncio.to_thread(_list_files)
+    
+    def _filename_matches_spec(self, filename: str, spec_number: str) -> bool:
+        """
+        Check if filename contains the specification number.
+        
+        Args:
+            filename: PDF filename to check
+            spec_number: Specification number to search for (e.g., "47589" or "47589/1")
+        
+        Returns:
+            True if filename contains the spec number
+        """
+        # Extract base number (before /)
+        base_number = spec_number.split('/')[0]
+        
+        # Escape special regex characters
+        escaped_number = re.escape(base_number)
+        
+        # Pattern: look for the base number with optional "/digit" suffix in filename
+        # Example: "ДОПП 47589 от 123456.pdf" or "ДОПП 47589/1 от 123456.pdf"
+        pattern = rf'{escaped_number}(?:/\d+)?'
+        
+        match = re.search(pattern, filename)
+        return match is not None
     
     async def download_file(self, remote_path: str, local_path: str) -> None:
         """

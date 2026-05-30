@@ -1,47 +1,59 @@
 """Telegram bot message handlers."""
-import os
+
+import asyncio
 import re
 from pathlib import Path
 
-from telegram import Update, InputMediaPhoto
-from telegram.ext import ContextTypes
 from loguru import logger
+from telegram import Update
+from telegram.ext import ContextTypes
 
 from .config import settings
+from .pdf_processor import (
+    extract_qr_from_pdf,
+    extract_text_from_pdf,
+    extract_vehicle_registration,
+    find_spec_number_in_text,
+)
 from .yadisk_client import YaDiskClient
-from .pdf_processor import extract_text_from_pdf, find_spec_number_in_text, extract_qr_from_pdf, extract_vehicle_registration
 
 
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def start_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
     """Handle /start command."""
     welcome_message = (
-        "👋 Привет! Я бот для извлечения QR-кодов.\n\n"
-        "Просто отправьте мне номер спецификации (например: 47589 или 47589/1), "
+        "👋 Привет! Я бот для извлечения QR-кодов для СПОТ.\n\n"
+        "Просто отправьте мне номер СМР (например: 47589 или 47589/1), "
         "и я найду соответствующие документы и отправлю вам QR-коды.\n\n"
         "Используйте /help для получения дополнительной информации."
     )
     await update.message.reply_text(welcome_message)
 
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def help_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
     """Handle /help command."""
     help_message = (
         "📖 Как использовать бота:\n\n"
-        "1. Отправьте номер спецификации (например: 47589)\n"
+        "1. Отправьте номер СМР (например: 47589)\n"
         "2. Бот найдет все документы с этим номером\n"
         "3. Вы получите QR-коды из найденных документов\n\n"
         "Примеры:\n"
         "• 47589 - найдет все документы (47589, 47589/1, 47589/2 и т.д.)\n"
         "• 47589/1 - найдет только документ с номером 47589/1\n\n"
-        "Если возникли проблемы, проверьте правильность номера спецификации."
+        "Если возникли проблемы, проверьте правильность номера СМР."
     )
     await update.message.reply_text(help_message)
 
 
-async def handle_spec_number(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_spec_number(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
     """
     Handle specification number messages.
-    
+
     Algorithm:
     1. Validate input (must be number or number/number)
     2. List all PDF files from Yandex Disk
@@ -56,49 +68,49 @@ async def handle_spec_number(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user_id = update.effective_user.id
     username = update.effective_user.username or "unknown"
     spec_number = update.message.text.strip()
-    
-    logger.info(f"Request from user {user_id} (@{username}): spec_number={spec_number}")
-    
+
+    logger.info(
+        f"Request from user {user_id} (@{username}): spec_number={spec_number}"
+    )
+
     # Validate input format
-    if not re.match(r'^\d+(/\d+)?$', spec_number):
+    if not re.match(r"^\d+(/\d+)?$", spec_number):
         await update.message.reply_text(
-            "❌ Неверный формат номера спецификации.\n"
+            "❌ Неверный формат номера СМР.\n"
             "Используйте формат: 47589 или 47589/1"
         )
         return
-    
+
     # Initialize Yandex Disk client
     yadisk_client = YaDiskClient(
-        token=settings.yandex_disk_token,
-        folder_path=settings.yadisk_folder
+        token=settings.yandex_disk_token, folder_path=settings.yadisk_folder
     )
-    
+
     # Send status message
     status_msg = await update.message.reply_text("🔍 Ищу документы...")
-    
+
     try:
-        # List all PDF files
-        pdf_files = await yadisk_client.list_all_pdf_files()
+        # List PDF files filtered by spec number in filename
+        pdf_files = await yadisk_client.list_all_pdf_files(spec_number=spec_number)
         
         if not pdf_files:
-            await status_msg.edit_text("❌ Не найдено документов.")
+            await status_msg.edit_text(
+                f"❌ Файлы с номером {spec_number} не найдены."
+            )
             return
-        
+
         await status_msg.edit_text(
             f"📂 Найдено документов: {len(pdf_files)}. Проверяю содержимое..."
         )
-        
-        # Process each PDF file
-        qr_codes = []  # List to collect QR codes for media group
-        errors = 0
         
         # Ensure temp directory exists
         tmp_dir = Path(settings.tmp_dir)
         tmp_dir.mkdir(parents=True, exist_ok=True)
         
-        for index, remote_path in enumerate(pdf_files):
+        # Process all PDF files in parallel
+        async def process_pdf(index: int, remote_path: str):
+            """Process a single PDF file."""
             pdf_filename = Path(remote_path).name
-            # Sanitize spec_number for filesystem (replace / with _)
             safe_spec_number = spec_number.replace('/', '_')
             local_pdf_path = tmp_dir / f"{safe_spec_number}_{index}.pdf"
             local_qr_path = tmp_dir / f"{safe_spec_number}_{index}_qr.png"
@@ -120,82 +132,82 @@ async def handle_spec_number(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     
                     # Extract QR code with auto-detection
                     try:
-                        # Use auto-detection (no manual coordinates needed)
                         await extract_qr_from_pdf(
                             str(local_pdf_path),
                             str(local_qr_path),
-                            crop_coords=None,  # Auto-detect QR code with zxing-cpp
+                            crop_coords=None,
                             dpi=settings.qr_dpi
                         )
                     except Exception as e:
                         logger.error(f"Failed to extract QR code: {e}")
                         raise
                     
-                    # Add QR code to collection
-                    # Simple: find "от XXXXXX" and cut everything after it, remove .pdf
+                    # Clean filename
                     match = re.search(r'(.*от\s*\d{6})', pdf_filename)
                     clean_filename = match.group(1) if match else pdf_filename
                     clean_filename = clean_filename.replace('.pdf', '').replace('.PDF', '')
                     
-                    qr_codes.append({
+                    return {
                         'path': local_qr_path,
                         'filename': clean_filename,
                         'vehicle_reg': vehicle_reg
-                    })
+                    }
                 else:
                     logger.debug(f"Spec number {spec_number} not found in {pdf_filename}")
+                    return None
                 
             except Exception as e:
                 logger.error(f"Error processing {pdf_filename}: {e}")
-                errors += 1
+                return {'error': True}
         
-        # Send all QR codes as media group or single message
+        # Process all PDFs concurrently
+        results = await asyncio.gather(
+            *[process_pdf(i, path) for i, path in enumerate(pdf_files)],
+            return_exceptions=True
+        )
+        
+        # Collect successful QR codes and count errors
+        qr_codes = []
+        errors = 0
+        
+        for result in results:
+            if isinstance(result, Exception):
+                errors += 1
+            elif result is not None:
+                if result.get('error'):
+                    errors += 1
+                else:
+                    qr_codes.append(result)
+
+        # Send each QR code as a separate message
         if qr_codes:
             try:
-                if len(qr_codes) == 1:
-                    # Send single QR code
-                    qr_data = qr_codes[0]
+                for qr_data in qr_codes:
                     caption = f"📄 {qr_data['filename']}"
-                    if qr_data['vehicle_reg']:
+                    if qr_data["vehicle_reg"]:
                         caption += f"\n🚗 АВТО: {qr_data['vehicle_reg']}"
-                    
-                    with open(qr_data['path'], 'rb') as qr_file:
+
+                    with open(qr_data["path"], "rb") as qr_file:
                         await update.message.reply_photo(
-                            photo=qr_file,
-                            caption=caption
+                            photo=qr_file, caption=caption
                         )
-                else:
-                    # Send multiple QR codes as media group with captions
-                    media_group = []
-                    for qr_data in qr_codes:
-                        caption = f"📄 {qr_data['filename']}"
-                        if qr_data['vehicle_reg']:
-                            caption += f"\n🚗 АВТО: {qr_data['vehicle_reg']}"
-                        
-                        with open(qr_data['path'], 'rb') as qr_file:
-                            media_group.append(
-                                InputMediaPhoto(
-                                    media=qr_file.read(),
-                                    caption=caption
-                                )
-                            )
-                    
-                    await update.message.reply_media_group(media=media_group)
-                
-                logger.info(f"Sent {len(qr_codes)} QR code(s) for spec {spec_number}")
-                
+
+                logger.info(
+                    f"Sent {len(qr_codes)} QR code(s) for spec {spec_number}"
+                )
+
             except Exception as e:
                 logger.error(f"Error sending QR codes: {e}")
                 errors += 1
-        
+
         # Clean up temporary files
         for qr_data in qr_codes:
             try:
-                if qr_data['path'].exists():
-                    qr_data['path'].unlink()
+                if qr_data["path"].exists():
+                    qr_data["path"].unlink()
             except Exception as e:
                 logger.warning(f"Failed to delete {qr_data['path']}: {e}")
-        
+
         # Send summary message
         if not qr_codes:
             await status_msg.edit_text(
@@ -206,12 +218,12 @@ async def handle_spec_number(update: Update, context: ContextTypes.DEFAULT_TYPE)
             if errors > 0:
                 summary += f"\n⚠️ Ошибок при обработке: {errors}"
             await status_msg.edit_text(summary)
-        
+
         logger.info(
             f"Request completed: spec_number={spec_number}, "
             f"sent={len(qr_codes)}, errors={errors}"
         )
-        
+
     except Exception as e:
         logger.error(f"Fatal error processing request: {e}")
         await status_msg.edit_text(
