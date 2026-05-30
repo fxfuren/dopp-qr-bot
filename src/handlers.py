@@ -14,6 +14,7 @@ from .pdf_processor import (
     extract_text_from_pdf,
     extract_vehicle_registration,
     find_spec_number_in_text,
+    extract_spec_number_from_text,
 )
 from .yadisk_client import YaDiskClient
 
@@ -90,15 +91,22 @@ async def handle_spec_number(
     status_msg = await update.message.reply_text("🔍 Ищу документы...")
 
     try:
-        # List PDF files filtered by spec number in filename
+        # Step 1: Try to find files by spec number in filename (fast)
         pdf_files = await yadisk_client.list_all_pdf_files(spec_number=spec_number)
         
         if not pdf_files:
+            # Step 2: If no files found by name, search all files by content (slower but thorough)
+            logger.info(f"No files found by filename for {spec_number}, checking all files by content...")
             await status_msg.edit_text(
-                f"❌ Файлы с номером {spec_number} не найдены."
+                f"🔍 Файлы с номером {spec_number} не найдены по названию.\n"
+                f"Проверяю содержимое всех документов (может занять время)..."
             )
-            return
-
+            pdf_files = await yadisk_client.list_all_pdf_files(spec_number=None)
+            
+            if not pdf_files:
+                await status_msg.edit_text("❌ Не найдено документов.")
+                return
+        
         await status_msg.edit_text(
             f"📂 Найдено документов: {len(pdf_files)}. Проверяю содержимое..."
         )
@@ -127,6 +135,10 @@ async def handle_spec_number(
                 if find_spec_number_in_text(text, spec_number):
                     logger.info(f"Spec number {spec_number} found in {pdf_filename}")
                     
+                    # Extract actual spec number from text
+                    actual_spec_number = extract_spec_number_from_text(text)
+                    display_spec = actual_spec_number if actual_spec_number else spec_number
+                    
                     # Extract vehicle registration number
                     vehicle_reg = extract_vehicle_registration(text)
                     
@@ -142,14 +154,9 @@ async def handle_spec_number(
                         logger.error(f"Failed to extract QR code: {e}")
                         raise
                     
-                    # Clean filename
-                    match = re.search(r'(.*от\s*\d{6})', pdf_filename)
-                    clean_filename = match.group(1) if match else pdf_filename
-                    clean_filename = clean_filename.replace('.pdf', '').replace('.PDF', '')
-                    
                     return {
                         'path': local_qr_path,
-                        'filename': clean_filename,
+                        'filename': display_spec,
                         'vehicle_reg': vehicle_reg
                     }
                 else:

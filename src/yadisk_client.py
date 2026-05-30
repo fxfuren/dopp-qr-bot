@@ -24,7 +24,7 @@ class YaDiskClient:
     
     async def list_all_pdf_files(self, spec_number: str = None) -> List[str]:
         """
-        List all PDF files in the configured folder, optionally filtered by spec number.
+        List all PDF files in the configured folder and subfolders, optionally filtered by spec number.
         
         Args:
             spec_number: Optional specification number to filter files by filename
@@ -36,27 +36,38 @@ class YaDiskClient:
             yadisk.exceptions.UnauthorizedError: If token is invalid
             yadisk.exceptions.PathNotFoundError: If folder doesn't exist
         """
+        def _list_files_recursive(folder_path: str) -> List[str]:
+            """Recursively list all PDF files in folder and subfolders."""
+            pdf_files = []
+            
+            try:
+                items = list(self.client.listdir(folder_path))
+                
+                for item in items:
+                    if item.type == "file" and item.name.lower().endswith(".pdf"):
+                        # If spec_number provided, filter by filename
+                        if spec_number:
+                            if self._filename_matches_spec(item.name, spec_number):
+                                pdf_files.append(item.path)
+                        else:
+                            pdf_files.append(item.path)
+                    elif item.type == "dir":
+                        # Recursively search in subdirectories
+                        pdf_files.extend(_list_files_recursive(item.path))
+                        
+            except Exception as e:
+                logger.warning(f"Error listing folder {folder_path}: {e}")
+            
+            return pdf_files
+        
         def _list_files():
             try:
                 # Check if client is authorized
                 if not self.client.check_token():
                     raise yadisk.exceptions.UnauthorizedError("Invalid Yandex Disk token")
                 
-                # List all items in the folder
-                items = list(self.client.listdir(self.folder_path))
-                
-                # Filter only PDF files
-                pdf_files = []
-                for item in items:
-                    if item.type == "file" and item.name.lower().endswith(".pdf"):
-                        # Optionally filter by prefix
-                        if item.name.startswith("ДОПП"):
-                            # If spec_number provided, filter by filename
-                            if spec_number:
-                                if self._filename_matches_spec(item.name, spec_number):
-                                    pdf_files.append(item.path)
-                            else:
-                                pdf_files.append(item.path)
+                # Recursively list all PDF files
+                pdf_files = _list_files_recursive(self.folder_path)
                 
                 logger.info(f"Found {len(pdf_files)} PDF files in {self.folder_path}")
                 return pdf_files

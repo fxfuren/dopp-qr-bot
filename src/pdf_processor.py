@@ -109,11 +109,40 @@ def find_spec_number_in_text(text: str, search_number: str) -> bool:
     return match is not None
 
 
+def extract_spec_number_from_text(text: str) -> Optional[str]:
+    """
+    Extract specification number from PDF text.
+    
+    Looks for pattern: "6.1А НОМЕР:47589" or similar.
+    
+    Args:
+        text: Text extracted from PDF
+        
+    Returns:
+        Specification number or None if not found
+    """
+    if not text:
+        return None
+    
+    # Pattern to find specification number
+    # Example: "6.1А НОМЕР:47589" or "6.1А НОМЕР: 47589"
+    pattern = r'6\.1[АA]\s*НОМЕР:\s*(\d+(?:/\d+)?)'
+    
+    match = re.search(pattern, text, re.IGNORECASE)
+    if match:
+        spec_number = match.group(1).strip()
+        logger.debug(f"Found spec number in text: {spec_number}")
+        return spec_number
+    
+    logger.debug("Spec number not found in text")
+    return None
+
+
 def extract_vehicle_registration(text: str) -> Optional[str]:
     """
     Extract vehicle registration number from PDF text.
     
-    Looks for pattern: "4.1ААВТО:РЕГИСТРАЦИОННЫЙЗНАК" followed by the registration number.
+    Looks for pattern: "4.1А АВТО: РЕГИСТРАЦИОННЫЙ ЗНАК" followed by the registration number.
     
     Args:
         text: Text extracted from PDF
@@ -124,16 +153,28 @@ def extract_vehicle_registration(text: str) -> Optional[str]:
     if not text:
         return None
     
-    # Pattern to find vehicle registration number
-    # Looks for "4.1ААВТО:РЕГИСТРАЦИОННЫЙЗНАК" followed by optional "4.1БНОМЕРПРИЦЕПА" and then the registration number
-    # The registration number is on the next line after these headers
-    pattern = r'4\.1ААВТО:РЕГИСТРАЦИОННЫЙЗНАК\s+4\.1БНОМЕРПРИЦЕПА\s+([A-Z0-9]+)'
+    # Pattern: Find the section with vehicle registration
+    # Example:
+    # "4.1А АВТО: РЕГИСТРАЦИОННЫЙ ЗНАК 4.1Б НОМЕР ПРИЦЕПА
+    #  BA 5118 5 A 1295 K 5"
+    pattern = r'4\.1[АA]\s*АВТО:\s*РЕГИСТРАЦИОННЫЙ\s+ЗНАК\s+4\.1[БB]\s*НОМЕР\s+ПРИЦЕПА\s*[\n\s]+([A-Z0-9\s]+?)(?:\n|$)'
     
-    match = re.search(pattern, text, re.IGNORECASE)
+    match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
     if match:
-        reg_number = match.group(1).strip()
-        logger.debug(f"Found vehicle registration: {reg_number}")
-        return reg_number
+        full_line = match.group(1).strip()
+        # Split by whitespace and take first 3 parts as vehicle registration
+        # Format: "BA 5118 5" (vehicle) "A 1295 K 5" (trailer)
+        parts = full_line.split()
+        if len(parts) >= 3:
+            # Take first 3 parts as vehicle registration number
+            reg_number = ' '.join(parts[:3])
+            logger.debug(f"Found vehicle registration: {reg_number}")
+            return reg_number
+        elif parts:
+            # If less than 3 parts, return what we have
+            reg_number = ' '.join(parts)
+            logger.debug(f"Found vehicle registration: {reg_number}")
+            return reg_number
     
     logger.debug("Vehicle registration number not found in text")
     return None
