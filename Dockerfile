@@ -72,8 +72,8 @@ COPY --chown=botuser:botuser healthcheck.py ./
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD python healthcheck.py || exit 1
 
-# Use tini as init system
-ENTRYPOINT ["/usr/bin/tini", "--"]
+# Use tini as init system with subreaper mode
+ENTRYPOINT ["/usr/bin/tini", "-s", "--"]
 
 # Run the bot
 CMD ["python", "-m", "src.main"]
