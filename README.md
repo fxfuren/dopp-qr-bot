@@ -1,116 +1,216 @@
 # DOPP QR Bot
 
-Telegram бот для автоматического извлечения QR-кодов из PDF документов ДОПП, хранящихся на Яндекс.Диске.
+Telegram бот для извлечения QR-кодов из PDF документов ДОПП, хранящихся на Яндекс.Диске.
 
-## 🚀 Возможности
+## Возможности
 
-- ✅ Автоматический поиск PDF по номеру спецификации
-- ✅ Поиск номера спецификации по всем страницам документа
-- ✅ Автоматическое определение и извлечение QR-кода с помощью zxing-cpp
-- ✅ Работает на Windows, Linux и macOS без дополнительных зависимостей
-- ✅ Docker поддержка с современными best practices (2026)
+- Поиск PDF файлов на Яндекс.Диске по номеру спецификации
+- Извлечение QR-кодов из найденных документов
+- Отправка QR-кодов в виде изображений в Telegram
 
-## 📋 Требования
+## Требования
 
-- Python 3.12+
+- Docker и Docker Compose
 - Telegram Bot Token (получить у [@BotFather](https://t.me/BotFather))
-- Yandex Disk OAuth Token
+- Yandex Disk OAuth Token (получить на [oauth.yandex.ru](https://oauth.yandex.ru/))
 
-## 🔧 Установка
+## Быстрый старт
 
-### Локальный запуск
+### 1. Клонирование репозитория
 
-1. Клонируйте репозиторий
-2. Установите зависимости:
 ```bash
-pip install -r requirements.txt
+git clone https://github.com/fxfuren/dopp-qr-bot
+cd dopp-qr-bot
 ```
 
-3. Создайте `.env` файл на основе `.env.example`:
+### 2. Настройка окружения
+
+Скопируйте `.env.example` в `.env` и заполните необходимые значения:
+
 ```bash
 cp .env.example .env
 ```
 
-4. Заполните `.env` файл своими токенами
+Отредактируйте `.env`:
 
-5. Запустите бота:
-```bash
-python -m src.main
+```env
+BOT_TOKEN=your_telegram_bot_token
+YANDEX_DISK_TOKEN=your_yandex_disk_token
+YADISK_FOLDER=/dopps
+TMP_DIR=/tmp/dopp_bot
+QR_DPI=150
+LOG_LEVEL=INFO
 ```
 
-### Docker запуск
+### 3. Запуск
 
-1. Создайте `.env` файл с вашими токенами
-
-2. Запустите через Docker Compose:
 ```bash
-docker-compose up -d
+# Сборка и запуск
+docker compose up -d
+
+# Проверка здоровья
+docker inspect dopp-qr-bot --format='{{.State.Health.Status}}'
+
+# Просмотр логов
+docker compose logs -f
 ```
 
-3. Проверьте логи:
+## Полезные команды
+
 ```bash
-docker-compose logs -f bot
+docker compose up -d                    # Запустить
+docker compose down                     # Остановить
+docker compose logs -f                  # Логи
+docker compose restart                  # Перезапустить
+docker compose ps                       # Статус
+
+# Healthcheck
+docker inspect dopp-qr-bot --format='{{.State.Health.Status}}'
+
+# Cleanup
+docker compose down -v --rmi local      # Удалить все
 ```
 
-## 📝 Использование
+## Production Best Practices
+
+### Безопасность
+
+- ✅ Non-root пользователь (UID 1000)
+- ✅ Read-only filesystem
+- ✅ No new privileges
+- ✅ Minimal base image (python:3.13-slim)
+- ✅ Multi-stage build для уменьшения размера образа
+
+### Мониторинг
+
+- ✅ Healthcheck с проверкой PID и heartbeat
+- ✅ Graceful shutdown (SIGTERM/SIGINT)
+- ✅ Structured logging с ротацией
+- ✅ Resource limits (CPU/Memory)
+
+### Надежность
+
+- ✅ Restart policy: unless-stopped
+- ✅ Init system (tini) для правильной обработки сигналов
+- ✅ Stop grace period 30s
+- ✅ Healthcheck с retries
+
+### Логирование
+
+Логи сохраняются в `/tmp/dopp_bot/logs/` внутри контейнера:
+
+- Ротация при достижении 10 MB
+- Хранение за последние 7 дней
+- Автоматическое сжатие старых логов
+
+Для просмотра логов:
+
+```bash
+# Логи контейнера
+docker compose logs -f
+
+# Логи приложения (внутри volume)
+docker exec dopp-qr-bot cat /tmp/dopp_bot/logs/bot.log
+```
+
+## Использование бота
 
 1. Запустите бота командой `/start`
-2. Отправьте номер спецификации (например: `47589`)
-3. Бот найдет PDF на Яндекс.Диске и отправит QR-код
+2. Отправьте номер спецификации (например: `475892`)
+3. Бот найдет PDF файл на Яндекс.Диске и извлечет QR-коды
+4. QR-коды будут отправлены в виде изображений
 
-## 🔑 Получение токенов
-
-### Telegram Bot Token
-
-1. Напишите [@BotFather](https://t.me/BotFather)
-2. Создайте нового бота командой `/newbot`
-3. Скопируйте полученный токен
-
-### Yandex Disk OAuth Token
-
-1. Зарегистрируйте приложение на https://oauth.yandex.ru/
-2. Укажите права доступа: `cloud_api:disk.read`
-3. Получите токен по ссылке:
-```
-https://oauth.yandex.ru/authorize?response_type=token&client_id=YOUR_CLIENT_ID
-```
-
-## 🏗️ Архитектура
+## Структура проекта
 
 ```
 dopp-qr-bot/
 ├── src/
-│   ├── main.py           # Точка входа
-│   ├── config.py         # Конфигурация
-│   ├── handlers.py       # Обработчики Telegram
-│   ├── pdf_processor.py  # Обработка PDF и QR-кодов
-│   └── yadisk_client.py  # Клиент Яндекс.Диска
-├── Dockerfile            # Docker образ (Python 3.13)
-├── docker-compose.yml    # Docker Compose конфигурация
-└── requirements.txt      # Python зависимости
+│   ├── __init__.py
+│   ├── main.py              # Точка входа
+│   ├── config.py            # Конфигурация
+│   ├── handlers.py          # Telegram handlers
+│   ├── pdf_processor.py     # Обработка PDF
+│   └── yadisk_client.py     # Клиент Яндекс.Диска
+├── Dockerfile               # Production Dockerfile
+├── docker-compose.yml       # Docker Compose config
+├── healthcheck.py           # Healthcheck script
+├── requirements.txt         # Python dependencies
+├── .env.example             # Environment template
+└── README.md
 ```
 
-## 🔒 Безопасность
+## Troubleshooting
 
-- ✅ Запуск от непривилегированного пользователя
-- ✅ Read-only файловая система
-- ✅ Ограничение ресурсов (CPU, память)
-- ✅ Security options (no-new-privileges)
-- ✅ Логирование с ротацией
+### Проверка здоровья контейнера
 
-## 📦 Технологии
+```bash
+docker inspect dopp-qr-bot --format='{{.State.Health.Status}}'
+```
 
-- **python-telegram-bot** - Telegram Bot API
-- **yadisk** - Yandex Disk API
-- **PyMuPDF** - Обработка PDF
-- **zxing-cpp** - Распознавание QR-кодов (без системных зависимостей)
-- **pdfplumber** - Извлечение текста из PDF
-- **loguru** - Логирование
+### Просмотр логов
 
-## 📄 Лицензия
+```bash
+# Все логи
+docker compose logs -f
+
+# Последние 100 строк
+docker compose logs --tail=100
+
+# Логи приложения
+docker exec dopp-qr-bot tail -f /tmp/dopp_bot/logs/bot.log
+```
+
+### Перезапуск при проблемах
+
+```bash
+# Мягкий перезапуск
+docker compose restart
+
+# Полная пересборка
+docker compose down
+docker compose build --pull --no-cache
+docker compose up -d
+```
+
+## Обновление
+
+```bash
+# Pull новых изменений
+git pull
+
+# Пересобрать и перезапустить
+docker compose down
+docker compose build --pull
+docker compose up -d
+```
+
+## Деплой
+
+```bash
+# 1. Настрой .env
+cp .env.example .env
+# Заполни BOT_TOKEN и YANDEX_DISK_TOKEN
+
+# 2. Собери образ
+docker compose build --pull
+
+# 3. Запусти
+docker compose up -d
+
+# 4. Проверь
+docker inspect dopp-qr-bot --format='{{.State.Health.Status}}'
+docker compose logs -f
+```
+
+## Мониторинг в production
+
+Рекомендуется настроить мониторинг:
+
+1. **Docker healthcheck** - встроен в compose файл
+2. **Логи** - используйте централизованную систему логирования (ELK, Loki)
+3. **Метрики** - добавьте Prometheus exporter при необходимости
+4. **Alerts** - настройте алерты на unhealthy состояние
+
+## Лицензия
 
 MIT
-
-## 🤝 Поддержка
-
-При возникновении проблем создайте Issue в репозитории.

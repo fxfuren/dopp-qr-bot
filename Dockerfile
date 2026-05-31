@@ -34,7 +34,7 @@ FROM python:3.13-slim
 LABEL org.opencontainers.image.title="DOPP QR Bot"
 LABEL org.opencontainers.image.description="Telegram bot for extracting QR codes from DOPP PDF documents"
 LABEL org.opencontainers.image.version="1.0.0"
-LABEL org.opencontainers.image.created="2026-05-28"
+LABEL org.opencontainers.image.created="2026-05-31"
 
 # Set runtime environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -55,7 +55,7 @@ COPY --from=builder /opt/venv /opt/venv
 
 # Create non-root user
 RUN useradd -m -u 1000 -s /bin/bash botuser && \
-    mkdir -p /app /tmp/dopp_bot /app/logs && \
+    mkdir -p /app /tmp/dopp_bot && \
     chown -R botuser:botuser /app /tmp/dopp_bot
 
 # Set working directory
@@ -64,12 +64,13 @@ WORKDIR /app
 # Switch to non-root user
 USER botuser
 
-# Copy source code
+# Copy source code and healthcheck script
 COPY --chown=botuser:botuser src/ ./src/
+COPY --chown=botuser:botuser healthcheck.py ./
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD python -c "import sys; sys.exit(0)"
+# Health check - verify bot process is responsive
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD python healthcheck.py || exit 1
 
 # Use tini as init system
 ENTRYPOINT ["/usr/bin/tini", "--"]

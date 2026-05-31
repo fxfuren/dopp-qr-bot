@@ -1,5 +1,8 @@
 """Main entry point for the Telegram bot."""
+import os
 import sys
+import signal
+import asyncio
 from pathlib import Path
 
 from loguru import logger
@@ -21,7 +24,7 @@ def setup_logging():
         colorize=True
     )
     
-    # Add file handler with rotation
+    # Add file handler with rotation in /tmp (writable in read-only container)
     log_dir = Path(settings.tmp_dir) / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     
@@ -35,6 +38,35 @@ def setup_logging():
     )
     
     logger.info("Logging configured")
+
+
+async def heartbeat_task():
+    """Update heartbeat file periodically for healthcheck."""
+    heartbeat_file = Path(settings.tmp_dir) / "heartbeat"
+    while True:
+        try:
+            heartbeat_file.touch()
+            await asyncio.sleep(60)
+        except Exception as e:
+            logger.error(f"Heartbeat update failed: {e}")
+            await asyncio.sleep(60)
+
+
+async def post_init(application: Application) -> None:
+    """Post-initialization hook to start background tasks."""
+    # Start heartbeat task
+    asyncio.create_task(heartbeat_task())
+    logger.info("Heartbeat task started")
+
+
+async def post_shutdown(application: Application) -> None:
+    """Post-shutdown hook for cleanup."""
+    logger.info("Cleaning up resources...")
+    # Remove PID file
+    pid_file = Path(settings.tmp_dir) / "bot.pid"
+    if pid_file.exists():
+        pid_file.unlink()
+    logger.info("Cleanup completed")
 
 
 def main():
@@ -52,8 +84,25 @@ def main():
     tmp_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"Temp directory created: {tmp_dir}")
     
+    # Write PID file for healthcheck
+    pid_file = tmp_dir / "bot.pid"
+    pid_file.write_text(str(os.getpid()))
+    logger.info(f"PID file created: {pid_file}")
+    
+    # Setup graceful shutdown
+    def signal_handler(signum, frame):
+        logger.info(f"Received signal {signum}, initiating graceful shutdown...")
+        sys.exit(0)
+    
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+    
     # Create application
     application = Application.builder().token(settings.bot_token).build()
+    
+    # Register lifecycle hooks
+    application.post_init = post_init
+    application.post_shutdown = post_shutdown
     
     # Register command handlers
     application.add_handler(CommandHandler("start", start_command))
@@ -68,7 +117,12 @@ def main():
     
     # Start the bot
     logger.info("Bot is running. Press Ctrl+C to stop.")
-    application.run_polling(allowed_updates=["message"])
+    try:
+        application.run_polling(allowed_updates=["message"], close_loop=False)
+    except KeyboardInterrupt:
+        logger.info("Received keyboard interrupt")
+    finally:
+        logger.info("Bot stopped")
 
 
 if __name__ == "__main__":
