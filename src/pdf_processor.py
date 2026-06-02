@@ -143,6 +143,9 @@ def extract_vehicle_registration(text: str) -> Optional[str]:
     Extract vehicle registration number from PDF text.
     
     Looks for pattern: "4.1А АВТО: РЕГИСТРАЦИОННЫЙ ЗНАК" followed by the registration number.
+    Supports both formats:
+    - With spaces: "4.1А АВТО: РЕГИСТРАЦИОННЫЙ ЗНАК 4.1Б НОМЕР ПРИЦЕПА"
+    - Without spaces: "4.1ААВТО:РЕГИСТРАЦИОННЫЙЗНАК 4.1БНОМЕРПРИЦЕПА"
     
     Args:
         text: Text extracted from PDF
@@ -153,28 +156,59 @@ def extract_vehicle_registration(text: str) -> Optional[str]:
     if not text:
         return None
     
-    # Pattern: Find the section with vehicle registration
-    # Example:
-    # "4.1А АВТО: РЕГИСТРАЦИОННЫЙ ЗНАК 4.1Б НОМЕР ПРИЦЕПА
-    #  BA 5118 5 A 1295 K 5"
-    pattern = r'4\.1[АA]\s*АВТО:\s*РЕГИСТРАЦИОННЫЙ\s+ЗНАК\s+4\.1[БB]\s*НОМЕР\s+ПРИЦЕПА\s*[\n\s]+([A-Z0-9\s]+?)(?:\n|$)'
+    # Try multiple patterns to handle different OCR quality
+    patterns = [
+        # Pattern 1: Standard format with spaces (most common)
+        # Example: "4.1А АВТО: РЕГИСТРАЦИОННЫЙ ЗНАК 4.1Б НОМЕР ПРИЦЕПА\nBA 5118 5 A 1295 K 5"
+        r'4\.1[АA]\s+АВТО:\s*РЕГИСТРАЦИОННЫЙ\s+ЗНАК\s+4\.1[БB]\s+НОМЕР\s+ПРИЦЕПА\s*[\n\s]+([A-Z0-9\s]+?)(?:\n|$)',
+        
+        # Pattern 2: Compact format without spaces between keywords
+        # Example: "4.1ААВТО:РЕГИСТРАЦИОННЫЙЗНАК 4.1БНОМЕРПРИЦЕПА\n990OQ17 28AKH17"
+        r'4\.1[АA]АВТО:РЕГИСТРАЦИОННЫЙЗНАК\s+4\.1[БB]НОМЕРПРИЦЕПА\s*[\n\s]+([A-Z0-9\s]+?)(?:\n|$)',
+        
+        # Pattern 3: Mixed format (some spaces, but not all)
+        r'4\.1[АA]\s*АВТО:\s*РЕГИСТРАЦИОННЫЙ\s*ЗНАК\s+4\.1[БB]\s*НОМЕР\s*ПРИЦЕПА\s*[\n\s]+([A-Z0-9\s]+?)(?:\n|$)',
+    ]
     
-    match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
-    if match:
-        full_line = match.group(1).strip()
-        # Split by whitespace and take first 3 parts as vehicle registration
-        # Format: "BA 5118 5" (vehicle) "A 1295 K 5" (trailer)
-        parts = full_line.split()
-        if len(parts) >= 3:
-            # Take first 3 parts as vehicle registration number
-            reg_number = ' '.join(parts[:3])
-            logger.debug(f"Found vehicle registration: {reg_number}")
-            return reg_number
-        elif parts:
-            # If less than 3 parts, return what we have
-            reg_number = ' '.join(parts)
-            logger.debug(f"Found vehicle registration: {reg_number}")
-            return reg_number
+    for pattern_idx, pattern in enumerate(patterns, 1):
+        match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
+        if match:
+            full_line = match.group(1).strip()
+            logger.debug(f"Vehicle registration found using pattern {pattern_idx}: {full_line}")
+            
+            # Split by whitespace to separate vehicle number from trailer number
+            parts = full_line.split()
+            
+            if not parts:
+                continue
+            
+            # Determine vehicle number format
+            # Format 1: "BA 5118 5 A 1295 K 5" (vehicle is first 3 parts, trailer is next parts)
+            # Format 2: "990OQ17 28AKH17" (vehicle is first part, trailer is second part)
+            
+            # Check if first part looks like a compact registration number (e.g., "990OQ17", "28AKH17")
+            # Compact format: letters and numbers without spaces, typically 6-8 characters
+            if len(parts) >= 2 and re.match(r'^[A-Z0-9]{6,8}$', parts[0], re.IGNORECASE):
+                # Compact format: take first part only (it's the vehicle number)
+                reg_number = parts[0]
+                logger.debug(f"Extracted vehicle registration (compact format): {reg_number}")
+                return reg_number
+            elif len(parts) >= 3:
+                # Spaced format: take first 3 parts as vehicle registration
+                # Example: "BA 5118 5" (vehicle) + "A 1295 K 5" (trailer)
+                reg_number = ' '.join(parts[:3])
+                logger.debug(f"Extracted vehicle registration (spaced format): {reg_number}")
+                return reg_number
+            elif len(parts) == 1:
+                # Single part - just return it
+                reg_number = parts[0]
+                logger.debug(f"Extracted vehicle registration (single part): {reg_number}")
+                return reg_number
+            else:
+                # 2 parts - return both
+                reg_number = ' '.join(parts)
+                logger.debug(f"Extracted vehicle registration (2 parts): {reg_number}")
+                return reg_number
     
     logger.debug("Vehicle registration number not found in text")
     return None
