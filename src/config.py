@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     
     # Telegram Bot
     bot_token: str
+    notification_chat_id: str | None = None  # Chat ID for notifications about QR requests
     
     # Yandex Disk
     yandex_disk_token: str

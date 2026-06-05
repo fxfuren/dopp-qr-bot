@@ -108,9 +108,9 @@ def main():
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))
     
-    # Register message handler for specification numbers
+    # Register message handler for specification numbers (private chats only)
     application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_spec_number)
+        MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_spec_number)
     )
     
     logger.info("Handlers registered")

@@ -11,12 +11,71 @@ from telegram.ext import ContextTypes
 from .config import settings
 from .pdf_processor import (
     extract_qr_from_pdf,
+    extract_spec_number_from_text,
     extract_text_from_pdf,
     extract_vehicle_registration,
     find_spec_number_in_text,
-    extract_spec_number_from_text,
 )
 from .yadisk_client import YaDiskClient
+
+
+def get_driver_info(user) -> str:
+    """
+    Format driver information for notifications.
+    Returns username, first name, or user ID.
+    """
+    if user.username:
+        return f"@{user.username}"
+    elif user.first_name:
+        return user.first_name
+    else:
+        return f"ID: {user.id}"
+
+
+async def send_notification(
+    context: ContextTypes.DEFAULT_TYPE,
+    driver_info: str,
+    spec_number: str,
+    vehicle_reg: str | None,
+) -> None:
+    """
+    Send notification to the notification chat about QR code request.
+
+    Args:
+        context: Telegram context
+        driver_info: Driver identification (username/name/id)
+        spec_number: CMR specification number
+        vehicle_reg: Vehicle registration number (optional)
+    """
+    if not settings.notification_chat_id:
+        logger.debug(
+            "Notification chat ID not configured, skipping notification"
+        )
+        return
+
+    try:
+        notification_text = (
+            f"Водитель запросил QR-код и успешно его получил\n\n"
+            f"👤 Водитель: {driver_info}\n"
+            f"📄 СМР: {spec_number}"
+        )
+
+        if vehicle_reg:
+            notification_text += f"\n🚗 АВТО: {vehicle_reg}"
+
+        await context.bot.send_message(
+            chat_id=settings.notification_chat_id, text=notification_text
+        )
+        logger.info(
+            f"Notification sent to chat {settings.notification_chat_id}"
+        )
+    except Exception as e:
+        logger.error(
+            f"Failed to send notification to chat {settings.notification_chat_id}: {e}"
+        )
+        logger.info(
+            "Убедитесь что: 1) Бот добавлен в чат, 2) Боту даны права администратора или права на отправку сообщений, 3) Chat ID правильный"
+        )
 
 
 async def start_command(
@@ -70,6 +129,9 @@ async def handle_spec_number(
     username = update.effective_user.username or "unknown"
     spec_number = update.message.text.strip()
 
+    # Get driver info for notification
+    driver_info = get_driver_info(update.effective_user)
+
     logger.info(
         f"Request from user {user_id} (@{username}): spec_number={spec_number}"
     )
@@ -92,96 +154,144 @@ async def handle_spec_number(
 
     try:
         # Step 1: Try to find files by spec number in filename (fast)
-        pdf_files = await yadisk_client.list_all_pdf_files(spec_number=spec_number)
-        
+        pdf_files = await yadisk_client.list_all_pdf_files(
+            spec_number=spec_number
+        )
+
         if not pdf_files:
             # Step 2: If no files found by name, search all files by content (slower but thorough)
-            logger.info(f"No files found by filename for {spec_number}, checking all files by content...")
+            logger.info(
+                f"No files found by filename for {spec_number}, checking all files by content..."
+            )
             await status_msg.edit_text(
                 f"🔍 Файлы с номером {spec_number} не найдены по названию.\n"
                 f"Проверяю содержимое всех документов (может занять время)..."
             )
             pdf_files = await yadisk_client.list_all_pdf_files(spec_number=None)
-            
+
             if not pdf_files:
                 await status_msg.edit_text("❌ Не найдено документов.")
                 return
-        
+
         await status_msg.edit_text(
             f"📂 Найдено документов: {len(pdf_files)}. Проверяю содержимое..."
         )
-        
+
         # Ensure temp directory exists
         tmp_dir = Path(settings.tmp_dir)
         tmp_dir.mkdir(parents=True, exist_ok=True)
-        
+
+        # Start animation task for status message
+        animation_running = True
+        dots = [".", "..", "..."]
+        dot_index = 0
+
+        async def animate_status():
+            """Animate the status message with dots."""
+            nonlocal dot_index
+            while animation_running:
+                try:
+                    await status_msg.edit_text(
+                        f"📂 Найдено документов: {len(pdf_files)}. Проверяю содержимое{dots[dot_index]}"
+                    )
+                    dot_index = (dot_index + 1) % len(dots)
+                    await asyncio.sleep(1)
+                except Exception:
+                    # Ignore edit errors (rate limit, etc.)
+                    await asyncio.sleep(1)
+
+        # Start animation task
+        animation_task = asyncio.create_task(animate_status())
+
         # Process all PDF files in parallel
         async def process_pdf(index: int, remote_path: str):
             """Process a single PDF file."""
             pdf_filename = Path(remote_path).name
-            safe_spec_number = spec_number.replace('/', '_')
+            safe_spec_number = spec_number.replace("/", "_")
             local_pdf_path = tmp_dir / f"{safe_spec_number}_{index}.pdf"
             local_qr_path = tmp_dir / f"{safe_spec_number}_{index}_qr.png"
-            
+
             try:
                 # Download PDF
-                logger.debug(f"Processing file {index + 1}/{len(pdf_files)}: {pdf_filename}")
-                await yadisk_client.download_file(remote_path, str(local_pdf_path))
-                
+                logger.debug(
+                    f"Processing file {index + 1}/{len(pdf_files)}: {pdf_filename}"
+                )
+                await yadisk_client.download_file(
+                    remote_path, str(local_pdf_path)
+                )
+
                 # Extract text from all pages to find spec number
-                text = await extract_text_from_pdf(str(local_pdf_path), page_number=None)
-                
+                text = await extract_text_from_pdf(
+                    str(local_pdf_path), page_number=None
+                )
+
                 # Check if spec number is in text
                 if find_spec_number_in_text(text, spec_number):
-                    logger.info(f"Spec number {spec_number} found in {pdf_filename}")
-                    
+                    logger.info(
+                        f"Spec number {spec_number} found in {pdf_filename}"
+                    )
+
                     # Extract actual spec number from text
                     actual_spec_number = extract_spec_number_from_text(text)
-                    display_spec = actual_spec_number if actual_spec_number else spec_number
-                    
+                    display_spec = (
+                        actual_spec_number
+                        if actual_spec_number
+                        else spec_number
+                    )
+
                     # Extract vehicle registration number
                     vehicle_reg = extract_vehicle_registration(text)
-                    
+
                     # Extract QR code with auto-detection
                     try:
                         await extract_qr_from_pdf(
                             str(local_pdf_path),
                             str(local_qr_path),
                             crop_coords=None,
-                            dpi=settings.qr_dpi
+                            dpi=settings.qr_dpi,
                         )
                     except Exception as e:
                         logger.error(f"Failed to extract QR code: {e}")
                         raise
-                    
+
                     return {
-                        'path': local_qr_path,
-                        'filename': display_spec,
-                        'vehicle_reg': vehicle_reg
+                        "path": local_qr_path,
+                        "filename": display_spec,
+                        "vehicle_reg": vehicle_reg,
                     }
                 else:
-                    logger.debug(f"Spec number {spec_number} not found in {pdf_filename}")
+                    logger.debug(
+                        f"Spec number {spec_number} not found in {pdf_filename}"
+                    )
                     return None
-                
+
             except Exception as e:
                 logger.error(f"Error processing {pdf_filename}: {e}")
-                return {'error': True}
-        
+                return {"error": True}
+
         # Process all PDFs concurrently
         results = await asyncio.gather(
             *[process_pdf(i, path) for i, path in enumerate(pdf_files)],
-            return_exceptions=True
+            return_exceptions=True,
         )
-        
+
+        # Stop animation
+        animation_running = False
+        animation_task.cancel()
+        try:
+            await animation_task
+        except asyncio.CancelledError:
+            pass
+
         # Collect successful QR codes and count errors
         qr_codes = []
         errors = 0
-        
+
         for result in results:
             if isinstance(result, Exception):
                 errors += 1
             elif result is not None:
-                if result.get('error'):
+                if result.get("error"):
                     errors += 1
                 else:
                     qr_codes.append(result)
@@ -201,6 +311,16 @@ async def handle_spec_number(
 
                 logger.info(
                     f"Sent {len(qr_codes)} QR code(s) for spec {spec_number}"
+                )
+
+                # Send notification about successful QR code request
+                # Use the first QR code's data for notification
+                first_qr = qr_codes[0]
+                await send_notification(
+                    context=context,
+                    driver_info=driver_info,
+                    spec_number=first_qr["filename"],
+                    vehicle_reg=first_qr["vehicle_reg"],
                 )
 
             except Exception as e:
