@@ -83,11 +83,15 @@ def find_spec_number_in_text(text: str, search_number: str) -> bool:
     
     Supports flexible matching:
     - Search "47589" matches: "47589", "47589/1", "47589/2", "№47589", "№ 47589"
-    - Search "47589/1" matches: "47589", "47589/1", "47589/2" (all variants with base number)
+    - Search "47589/1" matches: "47589/1" specifically
+    - Search "475892" matches: "47589/2" (interprets trailing digit as /suffix)
+    - Search "А1842" matches: "А1842", "А1842/2", etc.
+    
+    Supports alphanumeric spec numbers (e.g., "47589", "А1842", "AVN2218").
     
     Args:
         text: Text to search in
-        search_number: Specification number to search for (e.g., "47589" or "47589/1")
+        search_number: Specification number to search for
         
     Returns:
         True if specification number is found, False otherwise
@@ -97,23 +101,39 @@ def find_spec_number_in_text(text: str, search_number: str) -> bool:
     
     # Extract base number (before /)
     base_number = search_number.split('/')[0]
-    
-    # Escape special regex characters in base_number
     escaped_number = re.escape(base_number)
     
-    # Pattern: optional "№", optional spaces, the base number, optional "/digit" suffix
-    # This will match all variants with the same base number
-    pattern = rf"№?\s*{escaped_number}(?:/\d+)?\b"
+    # Strategy 1: Direct match of the full base number
+    # Matches: "47589", "47589/1", "А1842", "А1842/2", "AVN2218/1"
+    pattern = rf"{escaped_number}(?:/[A-ZА-Яa-zа-я0-9]+)?"
+    if re.search(pattern, text, re.IGNORECASE):
+        return True
     
-    match = re.search(pattern, text, re.IGNORECASE)
-    return match is not None
+    # Strategy 2: If search_number is pure digits and long enough,
+    # try splitting last 1 digit as a potential /suffix
+    # E.g., "475892" -> try matching "47589/2", "47589" 
+    if re.match(r'^\d{4,}$', base_number) and len(base_number) >= 5:
+        # Try splitting off last digit as suffix: "475892" -> "47589" + "/2"
+        truncated = base_number[:-1]
+        suffix = base_number[-1]
+        escaped_truncated = re.escape(truncated)
+        pattern2 = rf"{escaped_truncated}(?:/{suffix})?"
+        if re.search(pattern2, text, re.IGNORECASE):
+            return True
+    
+    return False
 
 
 def extract_spec_number_from_text(text: str) -> Optional[str]:
     """
     Extract specification number from PDF text.
     
-    Looks for pattern: "6.1А НОМЕР:47589" or similar.
+    Supports multiple PDF formats:
+    - "6.1А НОМЕР: AVN2218/1 6.1Б ДАТА:" (number on same line)
+    - "6.1А НОМЕР: 6.1Б ДАТА: ...\n47589/2" (number on next line)
+    - "6.1 Спецификация No 47589/2 от ..." (from specification header)
+    
+    Supports alphanumeric spec numbers (Latin, Cyrillic, digits) with optional /suffix.
     
     Args:
         text: Text extracted from PDF
@@ -124,34 +144,53 @@ def extract_spec_number_from_text(text: str) -> Optional[str]:
     if not text:
         return None
     
-    # Pattern to find specification number
-    # Example: "6.1А НОМЕР:47589" or "6.1А НОМЕР: 47589"
-    pattern = r'6\.1[АA]\s*НОМЕР:\s*(\d+(?:/\d+)?)'
-    
-    match = re.search(pattern, text, re.IGNORECASE)
+    # Pattern 1: Number on the SAME line after "НОМЕР:"
+    # Example: "6.1АНОМЕР: А1842/2 6.1БДАТА:" or "6.1АНОМЕР: AVN2218/1 6.1БДАТА:"
+    pattern1 = r'6\.1[АA]\s*НОМЕР:\s*([A-ZА-Яa-zа-я0-9]+(?:/[A-ZА-Яa-zа-я0-9]+)?)\s+6\.1[БB]'
+    match = re.search(pattern1, text, re.IGNORECASE)
     if match:
         spec_number = match.group(1).strip()
-        logger.debug(f"Found spec number in text: {spec_number}")
+        logger.debug(f"Found spec number in text (pattern 1 - same line): {spec_number}")
+        return spec_number
+    
+    # Pattern 2: Number on the NEXT line after "НОМЕР:" (when НОМЕР: is followed by 6.1Б immediately)
+    # Example: "6.1АНОМЕР: 6.1БДАТА: 26.05.2026\n47589/2"
+    pattern2 = r'6\.1[АA]\s*НОМЕР:\s*6\.1[БB]\s*ДАТА:.*?\n\s*([A-ZА-Яa-zа-я0-9]+(?:/[A-ZА-Яa-zа-я0-9]+)?)\s*\n'
+    match = re.search(pattern2, text, re.IGNORECASE)
+    if match:
+        spec_number = match.group(1).strip()
+        logger.debug(f"Found spec number in text (pattern 2 - next line): {spec_number}")
+        return spec_number
+    
+    # Pattern 3: From "Спецификация" header line
+    # Example: "6.1 Спецификация No 47589/2 от 26.05.2026" or "6.1Спецификация№AVN2218/1от"
+    pattern3 = r'6\.1\s*Спецификация\s*(?:No\.?|№)\s*([A-ZА-Яa-zа-я0-9]+(?:/[A-ZА-Яa-zа-я0-9]+)?)\s*(?:от|$)'
+    match = re.search(pattern3, text, re.IGNORECASE)
+    if match:
+        spec_number = match.group(1).strip()
+        logger.debug(f"Found spec number in text (pattern 3 - specification header): {spec_number}")
         return spec_number
     
     logger.debug("Spec number not found in text")
     return None
 
 
-def extract_vehicle_registration(text: str) -> Optional[str]:
+def extract_vehicle_registration(text: str) -> Optional[dict]:
     """
-    Extract vehicle registration number from PDF text.
+    Extract vehicle and trailer registration numbers from PDF text.
     
     Looks for pattern: "4.1А АВТО: РЕГИСТРАЦИОННЫЙ ЗНАК" followed by the registration number.
     Supports both formats:
     - With spaces: "4.1А АВТО: РЕГИСТРАЦИОННЫЙ ЗНАК 4.1Б НОМЕР ПРИЦЕПА"
     - Without spaces: "4.1ААВТО:РЕГИСТРАЦИОННЫЙЗНАК 4.1БНОМЕРПРИЦЕПА"
+    Supports Cyrillic vehicle plates, Latin, digits, slashes, and hyphens.
     
     Args:
         text: Text extracted from PDF
         
     Returns:
-        Vehicle registration number or None if not found
+        Dict with 'vehicle' and 'trailer' keys, or None if not found.
+        Example: {"vehicle": "С542ОА67", "trailer": "А4351А-2"}
     """
     if not text:
         return None
@@ -159,15 +198,13 @@ def extract_vehicle_registration(text: str) -> Optional[str]:
     # Try multiple patterns to handle different OCR quality
     patterns = [
         # Pattern 1: Standard format with spaces (most common)
-        # Example: "4.1А АВТО: РЕГИСТРАЦИОННЫЙ ЗНАК 4.1Б НОМЕР ПРИЦЕПА\nBA 5118 5 A 1295 K 5"
-        r'4\.1[АA]\s+АВТО:\s*РЕГИСТРАЦИОННЫЙ\s+ЗНАК\s+4\.1[БB]\s+НОМЕР\s+ПРИЦЕПА\s*[\n\s]+([A-Z0-9\s]+?)(?:\n|$)',
+        r'4\.1[АA]\s+АВТО:\s*РЕГИСТРАЦИОННЫЙ\s+ЗНАК\s+4\.1[БB]\s+НОМЕР\s+ПРИЦЕПА\s*[\n\s]+([A-ZА-Яa-zа-я0-9/\-\s]+?)(?:\n|$)',
         
         # Pattern 2: Compact format without spaces between keywords
-        # Example: "4.1ААВТО:РЕГИСТРАЦИОННЫЙЗНАК 4.1БНОМЕРПРИЦЕПА\n990OQ17 28AKH17"
-        r'4\.1[АA]АВТО:РЕГИСТРАЦИОННЫЙЗНАК\s+4\.1[БB]НОМЕРПРИЦЕПА\s*[\n\s]+([A-Z0-9\s]+?)(?:\n|$)',
+        r'4\.1[АA]АВТО:РЕГИСТРАЦИОННЫЙЗНАК\s+4\.1[БB]НОМЕРПРИЦЕПА\s*[\n\s]+([A-ZА-Яa-zа-я0-9/\-\s]+?)(?:\n|$)',
         
         # Pattern 3: Mixed format (some spaces, but not all)
-        r'4\.1[АA]\s*АВТО:\s*РЕГИСТРАЦИОННЫЙ\s*ЗНАК\s+4\.1[БB]\s*НОМЕР\s*ПРИЦЕПА\s*[\n\s]+([A-Z0-9\s]+?)(?:\n|$)',
+        r'4\.1[АA]\s*АВТО:\s*РЕГИСТРАЦИОННЫЙ\s*ЗНАК\s+4\.1[БB]\s*НОМЕР\s*ПРИЦЕПА\s*[\n\s]+([A-ZА-Яa-zа-я0-9/\-\s]+?)(?:\n|$)',
     ]
     
     for pattern_idx, pattern in enumerate(patterns, 1):
@@ -182,33 +219,45 @@ def extract_vehicle_registration(text: str) -> Optional[str]:
             if not parts:
                 continue
             
-            # Determine vehicle number format
-            # Format 1: "BA 5118 5 A 1295 K 5" (vehicle is first 3 parts, trailer is next parts)
-            # Format 2: "990OQ17 28AKH17" (vehicle is first part, trailer is second part)
+            vehicle = None
+            trailer = None
             
-            # Check if first part looks like a compact registration number (e.g., "990OQ17", "28AKH17")
-            # Compact format: letters and numbers without spaces, typically 6-8 characters
-            if len(parts) >= 2 and re.match(r'^[A-Z0-9]{6,8}$', parts[0], re.IGNORECASE):
-                # Compact format: take first part only (it's the vehicle number)
-                reg_number = parts[0]
-                logger.debug(f"Extracted vehicle registration (compact format): {reg_number}")
-                return reg_number
+            # Determine vehicle number format
+            if len(parts) >= 2 and re.match(r'^[A-ZА-Яa-zа-я0-9/\-]{4,}$', parts[0], re.IGNORECASE):
+                # Compact format: first part is vehicle, second is trailer
+                vehicle = parts[0]
+                trailer = parts[1] if len(parts) >= 2 else None
+                logger.debug(f"Extracted (compact): vehicle={vehicle}, trailer={trailer}")
             elif len(parts) >= 3:
-                # Spaced format: take first 3 parts as vehicle registration
-                # Example: "BA 5118 5" (vehicle) + "A 1295 K 5" (trailer)
-                reg_number = ' '.join(parts[:3])
-                logger.debug(f"Extracted vehicle registration (spaced format): {reg_number}")
-                return reg_number
+                # Spaced format: first 3 parts as vehicle, rest as trailer
+                vehicle = ' '.join(parts[:3])
+                trailer = ' '.join(parts[3:]) if len(parts) > 3 else None
+                logger.debug(f"Extracted (spaced): vehicle={vehicle}, trailer={trailer}")
             elif len(parts) == 1:
-                # Single part - just return it
-                reg_number = parts[0]
-                logger.debug(f"Extracted vehicle registration (single part): {reg_number}")
-                return reg_number
+                vehicle = parts[0]
+                logger.debug(f"Extracted (single): vehicle={vehicle}")
             else:
-                # 2 parts - return both
-                reg_number = ' '.join(parts)
-                logger.debug(f"Extracted vehicle registration (2 parts): {reg_number}")
-                return reg_number
+                vehicle = parts[0]
+                trailer = parts[1] if len(parts) > 1 else None
+                logger.debug(f"Extracted (2 parts): vehicle={vehicle}, trailer={trailer}")
+            
+            # Handle case where vehicle contains "/" separating vehicle/trailer
+            # Example: "519ATP05/46BSA05" -> vehicle="519ATP05", trailer="46BSA05"
+            if vehicle and '/' in vehicle:
+                slash_parts = vehicle.split('/', 1)
+                # Only split if both parts look like registration numbers (not spec suffixes like /1, /2)
+                if len(slash_parts) == 2 and len(slash_parts[1]) >= 3:
+                    vehicle = slash_parts[0]
+                    # If trailer was a duplicate of the original vehicle string, replace it
+                    if trailer is None or trailer == match.group(1).strip().split()[0]:
+                        trailer = slash_parts[1]
+                    logger.debug(f"Split vehicle/trailer by slash: vehicle={vehicle}, trailer={trailer}")
+            
+            # Clean up empty trailer
+            if trailer and trailer.strip() in ('', '__________'):
+                trailer = None
+            
+            return {"vehicle": vehicle, "trailer": trailer}
     
     logger.debug("Vehicle registration number not found in text")
     return None

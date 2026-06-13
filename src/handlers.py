@@ -37,6 +37,7 @@ async def send_notification(
     driver_info: str,
     spec_number: str,
     vehicle_reg: str | None,
+    trailer_reg: str | None = None,
 ) -> None:
     """
     Send notification to the notification chat about QR code request.
@@ -46,6 +47,7 @@ async def send_notification(
         driver_info: Driver identification (username/name/id)
         spec_number: CMR specification number
         vehicle_reg: Vehicle registration number (optional)
+        trailer_reg: Trailer registration number (optional)
     """
     if not settings.notification_chat_id:
         logger.debug(
@@ -62,6 +64,8 @@ async def send_notification(
 
         if vehicle_reg:
             notification_text += f"\n🚗 АВТО: {vehicle_reg}"
+        if trailer_reg:
+            notification_text += f"\n🚛 ПРИЦЕП: {trailer_reg}"
 
         await context.bot.send_message(
             chat_id=settings.notification_chat_id, text=notification_text
@@ -136,11 +140,11 @@ async def handle_spec_number(
         f"Request from user {user_id} (@{username}): spec_number={spec_number}"
     )
 
-    # Validate input format
-    if not re.match(r"^\d+(/\d+)?$", spec_number):
+    # Validate input format: digits and/or letters (Latin/Cyrillic), with optional /suffix
+    if not re.match(r"^[A-ZА-Яa-zа-я0-9]+(/[A-ZА-Яa-zа-я0-9]+)?$", spec_number):
         await update.message.reply_text(
             "❌ Неверный формат номера СМР.\n"
-            "Используйте формат: 47589 или 47589/1"
+            "Используйте формат: 47589, 47589/1 или AVN2218"
         )
         return
 
@@ -239,8 +243,10 @@ async def handle_spec_number(
                         else spec_number
                     )
 
-                    # Extract vehicle registration number
-                    vehicle_reg = extract_vehicle_registration(text)
+                    # Extract vehicle and trailer registration numbers
+                    vehicle_info = extract_vehicle_registration(text)
+                    vehicle_reg = vehicle_info.get("vehicle") if vehicle_info else None
+                    trailer_reg = vehicle_info.get("trailer") if vehicle_info else None
 
                     # Extract QR code with auto-detection
                     try:
@@ -258,6 +264,7 @@ async def handle_spec_number(
                         "path": local_qr_path,
                         "filename": display_spec,
                         "vehicle_reg": vehicle_reg,
+                        "trailer_reg": trailer_reg,
                     }
                 else:
                     logger.debug(
@@ -303,6 +310,8 @@ async def handle_spec_number(
                     caption = f"📄 {qr_data['filename']}"
                     if qr_data["vehicle_reg"]:
                         caption += f"\n🚗 АВТО: {qr_data['vehicle_reg']}"
+                    if qr_data.get("trailer_reg"):
+                        caption += f"\n🚛 ПРИЦЕП: {qr_data['trailer_reg']}"
 
                     with open(qr_data["path"], "rb") as qr_file:
                         await update.message.reply_photo(
@@ -321,6 +330,7 @@ async def handle_spec_number(
                     driver_info=driver_info,
                     spec_number=first_qr["filename"],
                     vehicle_reg=first_qr["vehicle_reg"],
+                    trailer_reg=first_qr.get("trailer_reg"),
                 )
 
             except Exception as e:
