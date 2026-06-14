@@ -164,7 +164,7 @@ def extract_spec_number_from_text(text: str) -> Optional[str]:
     
     # Pattern 3: From "Спецификация" header line
     # Example: "6.1 Спецификация No 47589/2 от 26.05.2026" or "6.1Спецификация№AVN2218/1от"
-    pattern3 = r'6\.1\s*Спецификация\s*(?:No\.?|№)\s*([A-ZА-Яa-zа-я0-9]+(?:/[A-ZА-Яa-zа-я0-9]+)?)\s*(?:от|$)'
+    pattern3 = r'6\.1\s*Спецификация\s*(?:No\.?|№)\s*([A-ZА-Яa-zа-я0-9]+(?:/[0-9]+)?)(?=\s*от|\s*$)'
     match = re.search(pattern3, text, re.IGNORECASE)
     if match:
         spec_number = match.group(1).strip()
