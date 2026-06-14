@@ -3,6 +3,7 @@
 import sys
 from pathlib import Path
 
+
 def main():
     """Check if bot is healthy."""
     try:
@@ -16,7 +17,9 @@ def main():
         try:
             pid = int(pid_file.read_text().strip())
             # Check if process exists
-            Path(f"/proc/{pid}").exists()
+            if not Path(f"/proc/{pid}").exists():
+                print(f"ERROR: Process {pid} not found", file=sys.stderr)
+                sys.exit(1)
         except (ValueError, FileNotFoundError):
             print("ERROR: Invalid or dead PID", file=sys.stderr)
             sys.exit(1)
