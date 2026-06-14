@@ -1,7 +1,6 @@
 """Main entry point for the Telegram bot."""
 import os
 import sys
-import signal
 import asyncio
 from pathlib import Path
 
@@ -89,14 +88,6 @@ def main():
     pid_file.write_text(str(os.getpid()))
     logger.info(f"PID file created: {pid_file}")
     
-    # Setup graceful shutdown
-    def signal_handler(signum, frame):
-        logger.info(f"Received signal {signum}, initiating graceful shutdown...")
-        sys.exit(0)
-    
-    signal.signal(signal.SIGTERM, signal_handler)
-    signal.signal(signal.SIGINT, signal_handler)
-    
     # Create application
     application = Application.builder().token(settings.bot_token).build()
     
@@ -115,7 +106,7 @@ def main():
     
     logger.info("Handlers registered")
     
-    # Start the bot
+    # Start the bot (run_polling handles SIGINT/SIGTERM gracefully)
     logger.info("Bot is running. Press Ctrl+C to stop.")
     try:
         application.run_polling(allowed_updates=["message"], close_loop=False)
