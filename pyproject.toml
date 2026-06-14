@@ -1,0 +1,12 @@
+[project]
+name = "dopp-qr-bot"
+version = "1.0.0"
+description = "Telegram bot for extracting QR codes from DOPP PDF documents"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]

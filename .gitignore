@@ -41,9 +41,6 @@ tmp/
 htmlcov/
 .tox/
 
-# Docker
-.dockerignore
-
 # Project specific
 backups/
 *.pdf
