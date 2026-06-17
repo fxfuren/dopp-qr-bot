@@ -124,16 +124,67 @@ def find_spec_number_in_text(text: str, search_number: str) -> bool:
     return False
 
 
-def extract_spec_number_from_text(text: str) -> Optional[str]:
+def extract_all_spec_numbers_from_text(text: str) -> list[str]:
     """
-    Extract specification number from PDF text.
+    Extract ALL specification numbers from PDF text.
+    
+    A single DOPP document may contain multiple specifications (e.g., 47843 and 47843/1).
+    This function finds all of them.
     
     Supports multiple PDF formats:
     - "6.1А НОМЕР: AVN2218/1 6.1Б ДАТА:" (number on same line)
     - "6.1А НОМЕР: 6.1Б ДАТА: ...\n47589/2" (number on next line)
     - "6.1 Спецификация No 47589/2 от ..." (from specification header)
     
-    Supports alphanumeric spec numbers (Latin, Cyrillic, digits) with optional /suffix.
+    Args:
+        text: Text extracted from PDF
+        
+    Returns:
+        List of specification numbers found (may be empty)
+    """
+    if not text:
+        return []
+    
+    found_numbers: list[str] = []
+    
+    # Pattern 1: Number on the SAME line after "НОМЕР:"
+    # Example: "6.1АНОМЕР: А1842/2 6.1БДАТА:" or "6.1АНОМЕР: AVN2218/1 6.1БДАТА:"
+    pattern1 = r'6\.1[АA]\s*НОМЕР:\s*([A-ZА-Яa-zа-я0-9]+(?:/[A-ZА-Яa-zа-я0-9]+)?)\s+6\.1[БB]'
+    for match in re.finditer(pattern1, text, re.IGNORECASE):
+        spec = match.group(1).strip()
+        if spec not in found_numbers:
+            found_numbers.append(spec)
+    
+    # Pattern 2: Number on the NEXT line after "НОМЕР:" (when НОМЕР: is followed by 6.1Б immediately)
+    # Example: "6.1АНОМЕР: 6.1БДАТА: 26.05.2026\n47589/2"
+    pattern2 = r'6\.1[АA]\s*НОМЕР:\s*6\.1[БB]\s*ДАТА:.*?\n\s*([A-ZА-Яa-zа-я0-9]+(?:/[A-ZА-Яa-zа-я0-9]+)?)\s*\n'
+    for match in re.finditer(pattern2, text, re.IGNORECASE):
+        spec = match.group(1).strip()
+        if spec not in found_numbers:
+            found_numbers.append(spec)
+    
+    # Pattern 3: From "Спецификация" header line
+    # Example: "6.1 Спецификация No 47589/2 от 26.05.2026" or "6.1Спецификация№AVN2218/1от"
+    pattern3 = r'6\.1\s*Спецификация\s*(?:No\.?|№)\s*([A-ZА-Яa-zа-я0-9]+(?:/[0-9]+)?)(?=\s*от|\s*$)'
+    for match in re.finditer(pattern3, text, re.IGNORECASE):
+        spec = match.group(1).strip()
+        if spec not in found_numbers:
+            found_numbers.append(spec)
+    
+    if found_numbers:
+        logger.debug(f"Found spec numbers in text: {found_numbers}")
+    else:
+        logger.debug("No spec numbers found in text")
+    
+    return found_numbers
+
+
+def extract_spec_number_from_text(text: str) -> Optional[str]:
+    """
+    Extract specification number from PDF text.
+    
+    Returns the first found specification number.
+    For extracting all numbers, use extract_all_spec_numbers_from_text().
     
     Args:
         text: Text extracted from PDF
@@ -141,38 +192,8 @@ def extract_spec_number_from_text(text: str) -> Optional[str]:
     Returns:
         Specification number or None if not found
     """
-    if not text:
-        return None
-    
-    # Pattern 1: Number on the SAME line after "НОМЕР:"
-    # Example: "6.1АНОМЕР: А1842/2 6.1БДАТА:" or "6.1АНОМЕР: AVN2218/1 6.1БДАТА:"
-    pattern1 = r'6\.1[АA]\s*НОМЕР:\s*([A-ZА-Яa-zа-я0-9]+(?:/[A-ZА-Яa-zа-я0-9]+)?)\s+6\.1[БB]'
-    match = re.search(pattern1, text, re.IGNORECASE)
-    if match:
-        spec_number = match.group(1).strip()
-        logger.debug(f"Found spec number in text (pattern 1 - same line): {spec_number}")
-        return spec_number
-    
-    # Pattern 2: Number on the NEXT line after "НОМЕР:" (when НОМЕР: is followed by 6.1Б immediately)
-    # Example: "6.1АНОМЕР: 6.1БДАТА: 26.05.2026\n47589/2"
-    pattern2 = r'6\.1[АA]\s*НОМЕР:\s*6\.1[БB]\s*ДАТА:.*?\n\s*([A-ZА-Яa-zа-я0-9]+(?:/[A-ZА-Яa-zа-я0-9]+)?)\s*\n'
-    match = re.search(pattern2, text, re.IGNORECASE)
-    if match:
-        spec_number = match.group(1).strip()
-        logger.debug(f"Found spec number in text (pattern 2 - next line): {spec_number}")
-        return spec_number
-    
-    # Pattern 3: From "Спецификация" header line
-    # Example: "6.1 Спецификация No 47589/2 от 26.05.2026" or "6.1Спецификация№AVN2218/1от"
-    pattern3 = r'6\.1\s*Спецификация\s*(?:No\.?|№)\s*([A-ZА-Яa-zа-я0-9]+(?:/[0-9]+)?)(?=\s*от|\s*$)'
-    match = re.search(pattern3, text, re.IGNORECASE)
-    if match:
-        spec_number = match.group(1).strip()
-        logger.debug(f"Found spec number in text (pattern 3 - specification header): {spec_number}")
-        return spec_number
-    
-    logger.debug("Spec number not found in text")
-    return None
+    numbers = extract_all_spec_numbers_from_text(text)
+    return numbers[0] if numbers else None
 
 
 def extract_vehicle_registration(text: str) -> Optional[dict]:

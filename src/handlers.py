@@ -10,6 +10,7 @@ from telegram.ext import ContextTypes
 
 from .config import settings
 from .pdf_processor import (
+    extract_all_spec_numbers_from_text,
     extract_qr_from_pdf,
     extract_spec_number_from_text,
     extract_text_from_pdf,
@@ -116,9 +117,9 @@ async def process_single_pdf(
 
             logger.info(f"Spec number {spec_number} found in {pdf_filename}")
 
-            # Extract actual spec number from text
-            actual_spec_number = extract_spec_number_from_text(text)
-            display_spec = actual_spec_number if actual_spec_number else spec_number
+            # Extract all spec numbers from text
+            all_spec_numbers = extract_all_spec_numbers_from_text(text)
+            display_spec = ", ".join(all_spec_numbers) if all_spec_numbers else spec_number
 
             # Extract vehicle and trailer registration numbers
             vehicle_info = extract_vehicle_registration(text)
