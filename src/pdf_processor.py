@@ -51,6 +51,7 @@ async def extract_text_from_pdf(pdf_path: str, page_number: int = None) -> str:
         Exception: If PDF cannot be read or page doesn't exist
     """
     def _extract():
+        # Try pdfplumber first (better text extraction)
         try:
             with pdfplumber.open(pdf_path) as pdf:
                 if page_number is not None:
@@ -70,7 +71,23 @@ async def extract_text_from_pdf(pdf_path: str, page_number: int = None) -> str:
                 
                 return text
         except Exception as e:
-            logger.error(f"Error extracting text from {pdf_path}: {e}")
+            logger.warning(f"pdfplumber failed for {pdf_path}: {e}, trying PyMuPDF fallback...")
+
+        # Fallback: use PyMuPDF (fitz) — handles broken/non-standard PDFs
+        try:
+            doc = fitz.open(pdf_path)
+            if page_number is not None:
+                if page_number > len(doc):
+                    raise ValueError(f"Page {page_number} does not exist in PDF")
+                text = doc[page_number - 1].get_text()
+            else:
+                texts = [doc[i].get_text() for i in range(len(doc))]
+                text = "\n".join(texts)
+            doc.close()
+            logger.debug(f"PyMuPDF fallback succeeded for {pdf_path}")
+            return text
+        except Exception as e2:
+            logger.error(f"Error extracting text from {pdf_path}: {e2}")
             raise
     
     # Run in thread pool to avoid blocking
@@ -103,21 +120,24 @@ def find_spec_number_in_text(text: str, search_number: str) -> bool:
     base_number = search_number.split('/')[0]
     escaped_number = re.escape(base_number)
     
-    # Strategy 1: Direct match of the full base number
+    # Strategy 1: Direct match of the full base number with digit boundaries
     # Matches: "47589", "47589/1", "А1842", "А1842/2", "AVN2218/1"
-    pattern = rf"{escaped_number}(?:/[A-ZА-Яa-zа-я0-9]+)?"
+    # Digit boundaries (?<!\d) and (?!\d) prevent "47943" from matching inside "47945"
+    pattern = rf"(?<!\d){escaped_number}(?:/[A-ZА-Яa-zа-я0-9]+)?(?!\d)"
     if re.search(pattern, text, re.IGNORECASE):
         return True
     
     # Strategy 2: If search_number is pure digits and long enough,
     # try splitting last 1 digit as a potential /suffix
-    # E.g., "475892" -> try matching "47589/2", "47589" 
+    # E.g., "475892" -> try matching "47589/2"
+    # NOTE: Only match when the slash form "47589/2" is explicitly present,
+    # not just the truncated prefix "4794" (which could appear inside other numbers)
     if re.match(r'^\d{4,}$', base_number) and len(base_number) >= 5:
-        # Try splitting off last digit as suffix: "475892" -> "47589" + "/2"
+        # Try splitting off last digit as suffix: "475892" -> "47589/2"
         truncated = base_number[:-1]
         suffix = base_number[-1]
         escaped_truncated = re.escape(truncated)
-        pattern2 = rf"{escaped_truncated}(?:/{suffix})?"
+        pattern2 = rf"(?<!\d){escaped_truncated}/{suffix}(?!\d)"
         if re.search(pattern2, text, re.IGNORECASE):
             return True
     
@@ -217,6 +237,8 @@ def extract_vehicle_registration(text: str) -> Optional[dict]:
         return None
     
     # Try multiple patterns to handle different OCR quality
+    # Patterns 1-3: pdfplumber-style (label and value on same/nearby line, keywords merged/spaced)
+    # Pattern 4: fitz-style (label on one line, value on next line, spaces inside reg numbers)
     patterns = [
         # Pattern 1: Standard format with spaces (most common)
         r'4\.1[АA]\s+АВТО:\s*РЕГИСТРАЦИОННЫЙ\s+ЗНАК\s+4\.1[БB]\s+НОМЕР\s+ПРИЦЕПА\s*[\n\s]+([A-ZА-Яa-zа-я0-9/\-\s]+?)(?:\n|$)',
@@ -279,7 +301,32 @@ def extract_vehicle_registration(text: str) -> Optional[dict]:
                 trailer = None
             
             return {"vehicle": vehicle, "trailer": trailer}
-    
+
+    # Pattern 4: fitz-style — label and value on separate lines, spaces inside reg number
+    # Example:
+    #   4.1А АВТО: РЕГИСТРАЦИОННЫЙ ЗНАК
+    #   AE 9595 5
+    #   4.1Б НОМЕР ПРИЦЕПА
+    #   A 1523 I 5
+    fitz_pattern = (
+        r'4\.1[АA]\s+АВТО:\s+РЕГИСТРАЦИОННЫЙ\s+ЗНАК\s*\n'
+        r'\s*([A-ZА-Яa-zа-я0-9][A-ZА-Яa-zа-я0-9\s\-]*?)\s*\n'
+        r'\s*4\.1[БB]\s+НОМЕР\s+ПРИЦЕПА\s*\n'
+        r'\s*([A-ZА-Яa-zа-я0-9_][A-ZА-Яa-zа-я0-9\s\-_]*?)(?:\s*\n|$)'
+    )
+    fitz_match = re.search(fitz_pattern, text, re.IGNORECASE)
+    if fitz_match:
+        vehicle_raw = fitz_match.group(1).strip()
+        trailer_raw = fitz_match.group(2).strip()
+        logger.debug(f"Vehicle registration found using fitz pattern: vehicle_raw={vehicle_raw!r}, trailer_raw={trailer_raw!r}")
+        # Remove internal spaces — fitz splits individual chars/groups with spaces
+        vehicle = re.sub(r'\s+', '', vehicle_raw) or None
+        trailer = re.sub(r'\s+', '', trailer_raw) or None
+        if trailer in ('', '__________', '___', None):
+            trailer = None
+        logger.debug(f"Extracted (fitz): vehicle={vehicle}, trailer={trailer}")
+        return {"vehicle": vehicle, "trailer": trailer}
+
     logger.debug("Vehicle registration number not found in text")
     return None
 
