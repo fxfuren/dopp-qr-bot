@@ -316,7 +316,7 @@ def extract_vehicle_registration(text: str) -> Optional[dict]:
         r'4\.1[АA]\s+АВТО:\s+РЕГИСТРАЦИОННЫЙ\s+ЗНАК\s*\n'
         r'\s*([A-ZА-Яa-zа-я0-9][A-ZА-Яa-zа-я0-9\s\-]*?)\s*\n'
         r'\s*4\.1[БB]\s+НОМЕР\s+ПРИЦЕПА\s*\n'
-        r'\s*([A-ZА-Яa-zа-я0-9_][A-ZА-Яa-zа-я0-9\s\-_]*?)(?:\s*\n|$)'
+        r'\s*([A-ZА-Яa-zа-я0-9_]*[A-ZА-Яa-zа-я0-9\s\-_]*?)(?:\s*\n|$)'
     )
     fitz_match = re.search(fitz_pattern, text, re.IGNORECASE)
     if fitz_match:
