@@ -221,7 +221,7 @@ def extract_vehicle_registration(text: str) -> Optional[dict]:
     Looks for pattern: "4.1А АВТО: РЕГИСТРАЦИОННЫЙ ЗНАК" followed by the registration number.
     Supports both formats:
     - With spaces: "4.1А АВТО: РЕГИСТРАЦИОННЫЙ ЗНАК 4.1Б НОМЕР ПРИЦЕПА"
-    - Without spaces: "4.1ААВТО:РЕГИСТРАЦИОННЫЙЗНАК 4.1БНОМЕРПРИЦЕПА"
+    - Without spaces: "4.1ААВТО:РЕГИСТРАЦИОННЫЙ(?:ЗНАК|НОМЕР) 4.1БНОМЕРПРИЦЕПА"
     Supports Cyrillic vehicle plates, Latin, digits, slashes, and hyphens.
     
     Args:
@@ -239,13 +239,13 @@ def extract_vehicle_registration(text: str) -> Optional[dict]:
     # Pattern 4: fitz-style (label on one line, value on next line, spaces inside reg numbers)
     patterns = [
         # Pattern 1: Standard format with spaces (most common)
-        r'4\.1[АA]\s+АВТО:\s*РЕГИСТРАЦИОННЫЙ\s+ЗНАК(?:[\s\n]*4\.1[БB]\s+НОМЕР\s+ПРИЦЕПА)?\s*[\n\s]+([A-ZА-Яa-zа-я0-9/\-\s]+?)(?:\n|$)',
+        r'4\.1[АA]\s+АВТО:\s*РЕГИСТРАЦИОННЫЙ\s+(?:ЗНАК|НОМЕР)(?:[\s\n]*4\.1[БB]\s+НОМЕР\s+ПРИЦЕПА)?\s*[\n\s]+([A-ZА-Яa-zа-я0-9/\-\s]+?)(?:\n|$)',
         
         # Pattern 2: Compact format without spaces between keywords
-        r'4\.1[АA]АВТО:РЕГИСТРАЦИОННЫЙЗНАК(?:[\s\n]*4\.1[БB]НОМЕРПРИЦЕПА)?\s*[\n\s]+([A-ZА-Яa-zа-я0-9/\-\s]+?)(?:\n|$)',
+        r'4\.1[АA]АВТО:РЕГИСТРАЦИОННЫЙ(?:ЗНАК|НОМЕР)(?:[\s\n]*4\.1[БB]НОМЕРПРИЦЕПА)?\s*[\n\s]+([A-ZА-Яa-zа-я0-9/\-\s]+?)(?:\n|$)',
         
         # Pattern 3: Mixed format (some spaces, but not all)
-        r'4\.1[АA]\s*АВТО:\s*РЕГИСТРАЦИОННЫЙ\s*ЗНАК(?:[\s\n]*4\.1[БB]\s*НОМЕР\s*ПРИЦЕПА)?\s*[\n\s]+([A-ZА-Яa-zа-я0-9/\-\s]+?)(?:\n|$)',
+        r'4\.1[АA]\s*АВТО:\s*РЕГИСТРАЦИОННЫЙ\s*(?:ЗНАК|НОМЕР)(?:[\s\n]*4\.1[БB]\s*НОМЕР\s*ПРИЦЕПА)?\s*[\n\s]+([A-ZА-Яa-zа-я0-9/\-\s]+?)(?:\n|$)',
     ]
     
     for pattern_idx, pattern in enumerate(patterns, 1):
@@ -313,7 +313,7 @@ def extract_vehicle_registration(text: str) -> Optional[dict]:
     #   4.1Б НОМЕР ПРИЦЕПА
     #   A 1523 I 5
     fitz_pattern = (
-        r'4\.1[АA]\s+АВТО:\s+РЕГИСТРАЦИОННЫЙ\s+ЗНАК\s*\n'
+        r'4\.1[АA]\s+АВТО:\s+РЕГИСТРАЦИОННЫЙ\s+(?:ЗНАК|НОМЕР)\s*\n'
         r'\s*([A-ZА-Яa-zа-я0-9][A-ZА-Яa-zа-я0-9\s\-]*?)\s*\n'
         r'(?:\s*4\.1[БB]\s+НОМЕР\s+ПРИЦЕПА\s*\n'
         r'\s*([A-ZА-Яa-zа-я0-9_]*[A-ZА-Яa-zа-я0-9\s\-_]*?))?(?:\s*\n|$)'
