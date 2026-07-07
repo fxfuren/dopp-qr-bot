@@ -115,6 +115,9 @@ def find_spec_number_in_text(text: str, search_number: str) -> bool:
     """
     if not text or not search_number:
         return False
+        
+    text = normalize_chars(text.upper())
+    search_number = normalize_chars(search_number.upper())
     
     # Extract base number (before /)
     base_number = search_number.split('/')[0]
@@ -307,9 +310,9 @@ def extract_vehicle_registration(text: str) -> Optional[dict]:
             
             # Normalize: pdfplumber splits chars with spaces: "BA 5118 5" -> "BA51185"
             if vehicle:
-                vehicle = re.sub(r'\s+', '', vehicle)
+                vehicle = normalize_chars(re.sub(r'\s+', '', vehicle).upper())
             if trailer:
-                trailer = re.sub(r'\s+', '', trailer)
+                trailer = normalize_chars(re.sub(r'\s+', '', trailer).upper())
             
             return {"vehicle": vehicle, "trailer": trailer}
 
@@ -331,8 +334,8 @@ def extract_vehicle_registration(text: str) -> Optional[dict]:
         trailer_raw = fitz_match.group(2).strip() if fitz_match.group(2) else None
         logger.debug(f"Vehicle registration found using fitz pattern: vehicle_raw={vehicle_raw!r}, trailer_raw={trailer_raw!r}")
         # Remove internal spaces — fitz splits individual chars/groups with spaces
-        vehicle = re.sub(r'\s+', '', vehicle_raw) or None
-        trailer = re.sub(r'\s+', '', trailer_raw) or None
+        vehicle = normalize_chars(re.sub(r'\s+', '', vehicle_raw).upper()) if vehicle_raw else None
+        trailer = normalize_chars(re.sub(r'\s+', '', trailer_raw).upper()) if trailer_raw else None
         if trailer in ('', '__________', '___', None):
             trailer = None
         logger.debug(f"Extracted (fitz): vehicle={vehicle}, trailer={trailer}")
@@ -350,11 +353,21 @@ def extract_vehicle_registration(text: str) -> Optional[dict]:
     return None
 
 
+def normalize_chars(s: str) -> str:
+    """Normalize visually identical Cyrillic and Latin characters to Latin."""
+    # Mapping Cyrillic letters used in vehicle plates to Latin equivalents
+    mapping = str.maketrans(
+        'АВЕКМНОРСТХУІ',
+        'ABEKMHOPCTXYI'
+    )
+    return s.translate(mapping)
+
+
 def find_vehicle_in_text(text: str, vehicle_number: str) -> bool:
     """Search for vehicle registration number in PDF text (Section 4.1)."""
     if not text or not vehicle_number:
         return False
-    normalized_search = re.sub(r'\s+', '', vehicle_number).upper()
+    normalized_search = normalize_chars(re.sub(r'\s+', '', vehicle_number).upper())
     # Extract section 4.1 (vehicle info) — from "4.1А" to "4.2" or "Раздел 5"
     section_match = re.search(
         r'4\.1[АA].*?(?=4\.2|Раздел\s*5|$)',
@@ -363,7 +376,7 @@ def find_vehicle_in_text(text: str, vehicle_number: str) -> bool:
     if not section_match:
         return False
     section_text = section_match.group(0)
-    normalized_section = re.sub(r'\s+', '', section_text).upper()
+    normalized_section = normalize_chars(re.sub(r'\s+', '', section_text).upper())
     return normalized_search in normalized_section
 
 

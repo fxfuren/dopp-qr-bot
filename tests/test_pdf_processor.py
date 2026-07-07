@@ -70,12 +70,12 @@ def test_extract_spec_number_from_text_returns_none_when_not_found_or_empty(text
         (
             "4.1А АВТО: РЕГИСТРАЦИОННЫЙ ЗНАК 4.1Б НОМЕР ПРИЦЕПА\n"
             "С542ОА67 А4351А-2\n",
-            {"vehicle": "С542ОА67", "trailer": "А4351А-2"},
+            {"vehicle": "C542OA67", "trailer": "A4351A-2"},
         ),
         (
             "4.1ААВТО:РЕГИСТРАЦИОННЫЙЗНАК 4.1БНОМЕРПРИЦЕПА\n"
             "С542ОА67 А4351А-2\n",
-            {"vehicle": "С542ОА67", "trailer": "А4351А-2"},
+            {"vehicle": "C542OA67", "trailer": "A4351A-2"},
         ),
         (
             "4.1А АВТО: РЕГИСТРАЦИОННЫЙ ЗНАК 4.1Б НОМЕР ПРИЦЕПА\n"
@@ -85,7 +85,7 @@ def test_extract_spec_number_from_text_returns_none_when_not_found_or_empty(text
         (
             "4.1А АВТО: РЕГИСТРАЦИОННЫЙ ЗНАК 4.1Б НОМЕР ПРИЦЕПА\n"
             "С542ОА67\n",
-            {"vehicle": "С542ОА67", "trailer": None},
+            {"vehicle": "C542OA67", "trailer": None},
         ),
         (
             "4.1А АВТО: РЕГИСТРАЦИОННЫЙ ЗНАК 4.1Б НОМЕР ПРИЦЕПА\n"
