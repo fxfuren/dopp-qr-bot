@@ -260,27 +260,34 @@ def extract_vehicle_registration(text: str) -> Optional[dict]:
             if not parts:
                 continue
             
+            def is_full_plate(p):
+                return bool(re.search(r'[A-Za-zА-Яа-я]', p) and re.search(r'[0-9]', p))
+                
             vehicle = None
             trailer = None
             
-            # Determine vehicle number format
-            if len(parts) >= 2 and re.match(r'^[A-ZА-Яa-zа-я0-9/\-]{4,}$', parts[0], re.IGNORECASE):
-                # Compact format: first part is vehicle, second is trailer
+            if is_full_plate(parts[0]) and len(parts[0]) >= 4:
+                # Compact format: first part is vehicle, rest is trailer
                 vehicle = parts[0]
-                trailer = parts[1] if len(parts) >= 2 else None
-                logger.debug(f"Extracted (compact): vehicle={vehicle}, trailer={trailer}")
-            elif len(parts) >= 3:
-                # Spaced format: first 3 parts as vehicle, rest as trailer
-                vehicle = ' '.join(parts[:3])
-                trailer = ' '.join(parts[3:]) if len(parts) > 3 else None
-                logger.debug(f"Extracted (spaced): vehicle={vehicle}, trailer={trailer}")
-            elif len(parts) == 1:
-                vehicle = parts[0]
-                logger.debug(f"Extracted (single): vehicle={vehicle}")
+                trailer = ' '.join(parts[1:]) if len(parts) > 1 else None
             else:
-                vehicle = parts[0]
-                trailer = parts[1] if len(parts) > 1 else None
-                logger.debug(f"Extracted (2 parts): vehicle={vehicle}, trailer={trailer}")
+                vehicle_parts = [parts[0]]
+                trailer_parts = []
+                for i in range(1, len(parts)):
+                    # If current part is a full plate, it's the trailer
+                    if is_full_plate(parts[i]) and len(parts[i]) >= 4:
+                        trailer_parts = parts[i:]
+                        break
+                    # If previous part ends the vehicle (region code digit or hyphen+digit)
+                    if re.match(r'^(\d|-\d)$', parts[i-1]) or re.search(r'-\d$', parts[i-1]):
+                        trailer_parts = parts[i:]
+                        break
+                    vehicle_parts.append(parts[i])
+                
+                vehicle = ' '.join(vehicle_parts)
+                trailer = ' '.join(trailer_parts) if trailer_parts else None
+                
+            logger.debug(f"Extracted: vehicle={vehicle}, trailer={trailer}")
             
             # Handle case where vehicle contains "/" separating vehicle/trailer
             # Example: "519ATP05/46BSA05" -> vehicle="519ATP05", trailer="46BSA05"
