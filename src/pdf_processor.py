@@ -239,13 +239,13 @@ def extract_vehicle_registration(text: str) -> Optional[dict]:
     # Pattern 4: fitz-style (label on one line, value on next line, spaces inside reg numbers)
     patterns = [
         # Pattern 1: Standard format with spaces (most common)
-        r'4\.1[АA]\s+АВТО:\s*РЕГИСТРАЦИОННЫЙ\s+ЗНАК\s+4\.1[БB]\s+НОМЕР\s+ПРИЦЕПА\s*[\n\s]+([A-ZА-Яa-zа-я0-9/\-\s]+?)(?:\n|$)',
+        r'4\.1[АA]\s+АВТО:\s*РЕГИСТРАЦИОННЫЙ\s+ЗНАК(?:[\s\n]*4\.1[БB]\s+НОМЕР\s+ПРИЦЕПА)?\s*[\n\s]+([A-ZА-Яa-zа-я0-9/\-\s]+?)(?:\n|$)',
         
         # Pattern 2: Compact format without spaces between keywords
-        r'4\.1[АA]АВТО:РЕГИСТРАЦИОННЫЙЗНАК\s+4\.1[БB]НОМЕРПРИЦЕПА\s*[\n\s]+([A-ZА-Яa-zа-я0-9/\-\s]+?)(?:\n|$)',
+        r'4\.1[АA]АВТО:РЕГИСТРАЦИОННЫЙЗНАК(?:[\s\n]*4\.1[БB]НОМЕРПРИЦЕПА)?\s*[\n\s]+([A-ZА-Яa-zа-я0-9/\-\s]+?)(?:\n|$)',
         
         # Pattern 3: Mixed format (some spaces, but not all)
-        r'4\.1[АA]\s*АВТО:\s*РЕГИСТРАЦИОННЫЙ\s*ЗНАК\s+4\.1[БB]\s*НОМЕР\s*ПРИЦЕПА\s*[\n\s]+([A-ZА-Яa-zа-я0-9/\-\s]+?)(?:\n|$)',
+        r'4\.1[АA]\s*АВТО:\s*РЕГИСТРАЦИОННЫЙ\s*ЗНАК(?:[\s\n]*4\.1[БB]\s*НОМЕР\s*ПРИЦЕПА)?\s*[\n\s]+([A-ZА-Яa-zа-я0-9/\-\s]+?)(?:\n|$)',
     ]
     
     for pattern_idx, pattern in enumerate(patterns, 1):
@@ -315,13 +315,13 @@ def extract_vehicle_registration(text: str) -> Optional[dict]:
     fitz_pattern = (
         r'4\.1[АA]\s+АВТО:\s+РЕГИСТРАЦИОННЫЙ\s+ЗНАК\s*\n'
         r'\s*([A-ZА-Яa-zа-я0-9][A-ZА-Яa-zа-я0-9\s\-]*?)\s*\n'
-        r'\s*4\.1[БB]\s+НОМЕР\s+ПРИЦЕПА\s*\n'
-        r'\s*([A-ZА-Яa-zа-я0-9_]*[A-ZА-Яa-zа-я0-9\s\-_]*?)(?:\s*\n|$)'
+        r'(?:\s*4\.1[БB]\s+НОМЕР\s+ПРИЦЕПА\s*\n'
+        r'\s*([A-ZА-Яa-zа-я0-9_]*[A-ZА-Яa-zа-я0-9\s\-_]*?))?(?:\s*\n|$)'
     )
     fitz_match = re.search(fitz_pattern, text, re.IGNORECASE)
     if fitz_match:
         vehicle_raw = fitz_match.group(1).strip()
-        trailer_raw = fitz_match.group(2).strip()
+        trailer_raw = fitz_match.group(2).strip() if fitz_match.group(2) else None
         logger.debug(f"Vehicle registration found using fitz pattern: vehicle_raw={vehicle_raw!r}, trailer_raw={trailer_raw!r}")
         # Remove internal spaces — fitz splits individual chars/groups with spaces
         vehicle = re.sub(r'\s+', '', vehicle_raw) or None
@@ -332,6 +332,14 @@ def extract_vehicle_registration(text: str) -> Optional[dict]:
         return {"vehicle": vehicle, "trailer": trailer}
 
     logger.debug("Vehicle registration number not found in text")
+    
+    # Help debug missing vehicles by logging the relevant section
+    section_match = re.search(r'4\.1.*?4\.2', text, re.DOTALL | re.IGNORECASE)
+    if section_match:
+        logger.warning(f"Could not extract vehicle from section: {repr(section_match.group(0))}")
+    else:
+        logger.warning("Could not find section 4.1 to extract vehicle.")
+        
     return None
 
 
