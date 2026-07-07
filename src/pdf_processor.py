@@ -367,7 +367,7 @@ def find_vehicle_in_text(text: str, vehicle_number: str) -> bool:
     """Search for vehicle registration number in PDF text (Section 4.1)."""
     if not text or not vehicle_number:
         return False
-    normalized_search = normalize_chars(re.sub(r'\s+', '', vehicle_number).upper())
+    normalized_search = normalize_chars(re.sub(r'[\s\-]+', '', vehicle_number).upper())
     # Extract section 4.1 (vehicle info) — from "4.1А" to "4.2" or "Раздел 5"
     section_match = re.search(
         r'4\.1[АA].*?(?=4\.2|Раздел\s*5|$)',
@@ -376,7 +376,7 @@ def find_vehicle_in_text(text: str, vehicle_number: str) -> bool:
     if not section_match:
         return False
     section_text = section_match.group(0)
-    normalized_section = normalize_chars(re.sub(r'\s+', '', section_text).upper())
+    normalized_section = normalize_chars(re.sub(r'[\s\-]+', '', section_text).upper())
     return normalized_search in normalized_section
 
 
