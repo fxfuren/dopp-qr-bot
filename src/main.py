@@ -31,7 +31,7 @@ def setup_logging():
         log_dir / "bot.log",
         format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
         level=settings.log_level,
-        rotation="10 MB",
+        rotation="00:00",
         retention="7 days",
         compression="zip"
     )
