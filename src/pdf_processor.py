@@ -122,22 +122,20 @@ def find_spec_number_in_text(text: str, search_number: str) -> bool:
     
     # Strategy 1: Direct match of the full base number with digit boundaries
     # Matches: "47589", "47589/1", "А1842", "А1842/2", "AVN2218/1"
-    # Digit boundaries (?<!\d) and (?!\d) prevent "47943" from matching inside "47945"
-    pattern = rf"(?<!\d){escaped_number}(?:/[A-ZА-Яa-zа-я0-9]+)?(?!\d)"
+    # Negative lookahead (?!\d|\.\d) prevents matching "47943" inside "47945" or "47943.84"
+    pattern = rf"(?<!\d)(?<![\./]){escaped_number}(?:/[A-ZА-Яa-zа-я0-9]+)?(?!\d|\.\d)"
     if re.search(pattern, text, re.IGNORECASE):
         return True
     
     # Strategy 2: If search_number is pure digits and long enough,
     # try splitting last 1 digit as a potential /suffix
     # E.g., "475892" -> try matching "47589/2"
-    # NOTE: Only match when the slash form "47589/2" is explicitly present,
-    # not just the truncated prefix "4794" (which could appear inside other numbers)
     if re.match(r'^\d{4,}$', base_number) and len(base_number) >= 5:
         # Try splitting off last digit as suffix: "475892" -> "47589/2"
         truncated = base_number[:-1]
         suffix = base_number[-1]
         escaped_truncated = re.escape(truncated)
-        pattern2 = rf"(?<!\d){escaped_truncated}/{suffix}(?!\d)"
+        pattern2 = rf"(?<!\d)(?<![\./]){escaped_truncated}/{suffix}(?!\d|\.\d)"
         if re.search(pattern2, text, re.IGNORECASE):
             return True
     
@@ -300,6 +298,12 @@ def extract_vehicle_registration(text: str) -> Optional[dict]:
             if trailer and trailer.strip() in ('', '__________'):
                 trailer = None
             
+            # Normalize: pdfplumber splits chars with spaces: "BA 5118 5" -> "BA51185"
+            if vehicle:
+                vehicle = re.sub(r'\s+', '', vehicle)
+            if trailer:
+                trailer = re.sub(r'\s+', '', trailer)
+            
             return {"vehicle": vehicle, "trailer": trailer}
 
     # Pattern 4: fitz-style — label and value on separate lines, spaces inside reg number
@@ -329,6 +333,23 @@ def extract_vehicle_registration(text: str) -> Optional[dict]:
 
     logger.debug("Vehicle registration number not found in text")
     return None
+
+
+def find_vehicle_in_text(text: str, vehicle_number: str) -> bool:
+    """Search for vehicle registration number in PDF text (Section 4.1)."""
+    if not text or not vehicle_number:
+        return False
+    normalized_search = re.sub(r'\s+', '', vehicle_number).upper()
+    # Extract section 4.1 (vehicle info) — from "4.1А" to "4.2" or "Раздел 5"
+    section_match = re.search(
+        r'4\.1[АA].*?(?=4\.2|Раздел\s*5|$)',
+        text, re.DOTALL | re.IGNORECASE
+    )
+    if not section_match:
+        return False
+    section_text = section_match.group(0)
+    normalized_section = re.sub(r'\s+', '', section_text).upper()
+    return normalized_search in normalized_section
 
 
 async def extract_qr_from_pdf(
