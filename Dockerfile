@@ -55,8 +55,8 @@ COPY --from=builder /opt/venv /opt/venv
 
 # Create non-root user
 RUN useradd -m -u 1000 -s /bin/bash botuser && \
-    mkdir -p /app /tmp/dopp_bot && \
-    chown -R botuser:botuser /app /tmp/dopp_bot
+    mkdir -p /app/data /tmp/dopp_bot && \
+    chown -R botuser:botuser /app /tmp/dopp_bot /app/data
 
 # Set working directory
 WORKDIR /app
