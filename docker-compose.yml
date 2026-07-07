@@ -32,6 +32,7 @@ services:
     <<: [*common, *logging, *env]
     volumes:
       - dopp-qr-bot-tmp:/tmp/dopp_bot
+      - dopp-qr-bot-data:/app/data
     deploy:
       resources:
         limits:
@@ -61,5 +62,9 @@ networks:
 volumes:
   dopp-qr-bot-tmp:
     name: dopp-qr-bot-tmp
+    driver: local
+    external: false
+  dopp-qr-bot-data:
+    name: dopp-qr-bot-data
     driver: local
     external: false
