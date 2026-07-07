@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     
     # Temporary files
     tmp_dir: str = "/tmp/dopp_bot"
+    data_dir: str = "./data"  # Persistent data (DB, logs)
     
     # QR code extraction settings
     qr_dpi: int = 150

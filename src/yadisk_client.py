@@ -64,7 +64,7 @@ class YaDiskClient:
         self.folder_path = folder_path
         logger.info(f"YaDisk client initialized for folder: {folder_path}")
     
-    async def list_all_pdf_files(self, spec_number: str = None) -> List[str]:
+    async def list_all_pdf_files(self, spec_number: str = None) -> List[dict]:
         """
         List all PDF files in the configured folder and subfolders,
         optionally filtered by spec number.
@@ -73,25 +73,31 @@ class YaDiskClient:
             spec_number: Optional specification number to filter files by filename
         
         Returns:
-            List of full paths to PDF files
+            List of dicts with file info (path, modified, name)
         """
         async def _do_list():
-            def _list_files_recursive(folder_path: str) -> List[str]:
+            def _list_files_recursive(folder_path: str) -> List[dict]:
                 """Recursively list all PDF files in folder and subfolders."""
                 pdf_files = []
                 try:
                     items = list(self.client.listdir(folder_path))
                     for item in items:
                         if item.type == "file" and item.name.lower().endswith(".pdf"):
+                            file_info = {
+                                'path': item.path,
+                                'modified': item.modified.isoformat() if hasattr(item, 'modified') and item.modified else '',
+                                'name': item.name
+                            }
                             if spec_number:
                                 if self._filename_matches_spec(item.name, spec_number):
-                                    pdf_files.append(item.path)
+                                    pdf_files.append(file_info)
                             else:
-                                pdf_files.append(item.path)
+                                pdf_files.append(file_info)
                         elif item.type == "dir":
                             pdf_files.extend(_list_files_recursive(item.path))
                 except Exception as e:
-                    logger.warning(f"Error listing folder {folder_path}: {e}")
+                    logger.error(f"Error listing directory {folder_path}: {e}")
+                    raise
                 return pdf_files
 
             def _list_files():
