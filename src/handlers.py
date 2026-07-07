@@ -118,12 +118,26 @@ async def process_single_pdf(
             if cached_data:
                 text = cached_data['text']
                 logger.debug(f"Cache hit for {pdf_filename}")
+                all_spec_numbers = cached_data['spec_numbers']
+                display_spec = ", ".join(all_spec_numbers) if all_spec_numbers else search_term
+                vehicle_reg = cached_data['vehicle_reg']
+                trailer_reg = cached_data['trailer_reg']
             else:
                 # Download PDF
                 logger.debug(f"Processing file {index + 1}/{total}: {pdf_filename}")
                 await yadisk_client.download_file(remote_path, str(local_pdf_path))
                 # Extract text from all pages
                 text = await extract_text_from_pdf(str(local_pdf_path), page_number=None)
+                
+                # Extract data to save to cache immediately
+                all_spec_numbers = extract_all_spec_numbers_from_text(text)
+                display_spec = ", ".join(all_spec_numbers) if all_spec_numbers else search_term
+                vehicle_info = extract_vehicle_registration(text)
+                vehicle_reg = vehicle_info.get("vehicle") if vehicle_info else None
+                trailer_reg = vehicle_info.get("trailer") if vehicle_info else None
+                
+                # Save to cache
+                await cache.save_pdf_cache(remote_path, modified, text, all_spec_numbers, vehicle_reg, trailer_reg)
 
             # Check if text matches the search term
             if search_mode == 'spec':
@@ -136,24 +150,6 @@ async def process_single_pdf(
                 return None
 
             logger.info(f"{search_mode} {search_term} found in {pdf_filename}")
-
-
-
-            # Extract vehicle and trailer registration numbers
-            if cached_data:
-                all_spec_numbers = cached_data['spec_numbers']
-                display_spec = ", ".join(all_spec_numbers) if all_spec_numbers else search_term
-                vehicle_reg = cached_data['vehicle_reg']
-                trailer_reg = cached_data['trailer_reg']
-            else:
-                all_spec_numbers = extract_all_spec_numbers_from_text(text)
-                display_spec = ", ".join(all_spec_numbers) if all_spec_numbers else search_term
-                vehicle_info = extract_vehicle_registration(text)
-                vehicle_reg = vehicle_info.get("vehicle") if vehicle_info else None
-                trailer_reg = vehicle_info.get("trailer") if vehicle_info else None
-                
-                # Save to cache
-                await cache.save_pdf_cache(remote_path, modified, text, all_spec_numbers, vehicle_reg, trailer_reg)
 
             # We need the PDF locally to extract the QR code!
             if cached_data and not local_pdf_path.exists():
