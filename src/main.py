@@ -5,10 +5,10 @@ import asyncio
 from pathlib import Path
 
 from loguru import logger
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 
 from .config import settings
-from .handlers import start_command, help_command, handle_spec_number
+from .handlers import start_command, help_command, handle_user_input, handle_search_callback
 
 
 def setup_logging():
@@ -24,7 +24,7 @@ def setup_logging():
     )
     
     # Add file handler with rotation in /tmp (writable in read-only container)
-    log_dir = Path(settings.tmp_dir) / "logs"
+    log_dir = Path(settings.data_dir) / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     
     logger.add(
@@ -53,6 +53,15 @@ async def heartbeat_task():
 
 async def post_init(application: Application) -> None:
     """Post-initialization hook to start background tasks."""
+    # Initialize cache database
+    from .cache import PDFCache
+    from .config import settings
+    data_dir = Path(settings.data_dir)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    cache = PDFCache(str(data_dir / 'pdf_cache.db'))
+    await cache.init_db()
+    logger.info("PDF Cache database initialized")
+
     # Start heartbeat task
     asyncio.create_task(heartbeat_task())
     logger.info("Heartbeat task started")
@@ -101,15 +110,18 @@ def main():
     
     # Register message handler for specification numbers (private chats only)
     application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_spec_number)
+        MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_user_input)
     )
+    
+    # Register callback query handler for inline buttons
+    application.add_handler(CallbackQueryHandler(handle_search_callback))
     
     logger.info("Handlers registered")
     
     # Start the bot (run_polling handles SIGINT/SIGTERM gracefully)
     logger.info("Bot is running. Press Ctrl+C to stop.")
     try:
-        application.run_polling(allowed_updates=["message"], close_loop=False)
+        application.run_polling(allowed_updates=["message", "callback_query"], close_loop=False)
     except KeyboardInterrupt:
         logger.info("Received keyboard interrupt")
     finally:
