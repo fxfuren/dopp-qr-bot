@@ -229,6 +229,39 @@ async def send_notification(
         )
 
 
+async def send_notification_multi(
+    context: ContextTypes.DEFAULT_TYPE,
+    driver_info: str,
+    qr_codes: list[dict],
+) -> None:
+    """
+    Send a single notification listing ALL found documents (for vehicle search).
+    Each entry shows its spec number, vehicle and trailer.
+    """
+    if not settings.notification_chat_id:
+        return
+
+    try:
+        lines = [
+            f"Водитель запросил QR-коды и успешно их получил\n",
+            f"👤 Водитель: {driver_info}",
+        ]
+        for i, qr in enumerate(qr_codes, 1):
+            lines.append(f"\n📄 СМР {i}: {qr['filename']}")
+            if qr.get("vehicle_reg"):
+                lines.append(f"🚗 АВТО: {qr['vehicle_reg']}")
+            if qr.get("trailer_reg"):
+                lines.append(f"🚛 ПРИЦЕП: {qr['trailer_reg']}")
+
+        await context.bot.send_message(
+            chat_id=settings.notification_chat_id,
+            text="\n".join(lines),
+        )
+        logger.info(f"Multi-notification sent ({len(qr_codes)} docs) to {settings.notification_chat_id}")
+    except Exception as e:
+        logger.error(f"Failed to send multi-notification: {e}")
+
+
 async def send_qr_results(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -775,13 +808,10 @@ async def _process_cached_vehicle_results(
 
         logger.info(f"Sent {len(qr_codes)} QR code(s) for vehicle {vehicle_number}")
 
-        first_qr = qr_codes[0]
-        await send_notification(
+        await send_notification_multi(
             context=context,
             driver_info=driver_info,
-            spec_number=first_qr["filename"],
-            vehicle_reg=first_qr["vehicle_reg"],
-            trailer_reg=first_qr.get("trailer_reg"),
+            qr_codes=qr_codes,
         )
     except Exception as e:
         logger.error(f"Error sending vehicle QR codes: {e}")
@@ -887,14 +917,21 @@ async def _process_and_send_results(
 
         logger.info(f"Sent {len(qr_codes)} QR code(s) for {search_mode} {search_term}")
 
-        first_qr = qr_codes[0]
-        await send_notification(
-            context=context,
-            driver_info=driver_info,
-            spec_number=first_qr["filename"],
-            vehicle_reg=first_qr["vehicle_reg"],
-            trailer_reg=first_qr.get("trailer_reg"),
-        )
+        if search_mode == "vehicle" and len(qr_codes) > 1:
+            await send_notification_multi(
+                context=context,
+                driver_info=driver_info,
+                qr_codes=qr_codes,
+            )
+        else:
+            first_qr = qr_codes[0]
+            await send_notification(
+                context=context,
+                driver_info=driver_info,
+                spec_number=first_qr["filename"],
+                vehicle_reg=first_qr["vehicle_reg"],
+                trailer_reg=first_qr.get("trailer_reg"),
+            )
 
     except Exception as e:
         logger.error(f"Error sending QR codes: {e}")
