@@ -242,12 +242,15 @@ async def send_notification_multi(
         return
 
     try:
+        many = len(qr_codes) > 1
+        header = "QR-коды" if many else "QR-код"
         lines = [
-            f"Водитель запросил QR-коды и успешно их получил\n",
+            f"Водитель запросил {header} и успешно его получил\n",
             f"👤 Водитель: {driver_info}",
         ]
         for i, qr in enumerate(qr_codes, 1):
-            lines.append(f"\n📄 СМР {i}: {qr['filename']}")
+            prefix = f"📄 СМР {i}:" if many else "📄 СМР:"
+            lines.append(f"\n{prefix} {qr['filename']}")
             if qr.get("vehicle_reg"):
                 lines.append(f"🚗 АВТО: {qr['vehicle_reg']}")
             if qr.get("trailer_reg"):
