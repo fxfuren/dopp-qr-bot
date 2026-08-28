@@ -8,3 +8,4 @@ pdfplumber>=0.10.0
 requests>=2.31.0
 zxing-cpp
 aiosqlite>=0.20.0
+rapidfuzz>=3.0.0

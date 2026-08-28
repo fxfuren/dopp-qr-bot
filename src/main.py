@@ -8,7 +8,7 @@ from loguru import logger
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 
 from .config import settings
-from .handlers import start_command, help_command, handle_user_input, handle_search_callback
+from .handlers import start_command, help_command, handle_user_input, handle_search_callback, handle_group_pdf
 
 
 def setup_logging():
@@ -108,6 +108,14 @@ def main():
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))
     
+    # Register handler for PDF documents sent to group chats (before text handler)
+    application.add_handler(
+        MessageHandler(
+            filters.Document.MimeType("application/pdf") & ~filters.ChatType.PRIVATE,
+            handle_group_pdf,
+        )
+    )
+
     # Register message handler for specification numbers (private chats only)
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_user_input)

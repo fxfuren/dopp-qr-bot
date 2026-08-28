@@ -152,3 +152,41 @@ class YaDiskClient:
         except Exception as e:
             logger.error(f"Error while downloading {remote_path}: {e}")
             raise
+
+    async def list_top_level_folders(self) -> list[str]:
+        """
+        Return the names of all direct subdirectories of self.folder_path.
+        """
+        async def _do_list():
+            def _list():
+                items = list(self.client.listdir(self.folder_path))
+                return [item.name for item in items if item.type == "dir"]
+            return await asyncio.to_thread(_list)
+
+        try:
+            return await _retry_async(_do_list, operation_name="list_top_level_folders")
+        except Exception as e:
+            logger.error(f"Error listing top-level folders in {self.folder_path}: {e}")
+            raise
+
+    async def upload_file(self, local_path: str, remote_path: str) -> None:
+        """
+        Upload a local file to Yandex Disk with retry logic.
+
+        Args:
+            local_path: Absolute path to the local file to upload.
+            remote_path: Destination path on Yandex Disk (must include filename).
+        """
+        async def _do_upload():
+            def _upload():
+                self.client.upload(local_path, remote_path, overwrite=True)
+                logger.debug(f"Uploaded {local_path} to {remote_path}")
+            return await asyncio.to_thread(_upload)
+
+        try:
+            await _retry_async(
+                _do_upload, operation_name=f"upload({Path(local_path).name})"
+            )
+        except Exception as e:
+            logger.error(f"Error while uploading {local_path} to {remote_path}: {e}")
+            raise

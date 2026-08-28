@@ -363,6 +363,80 @@ def normalize_chars(s: str) -> str:
     return s.translate(mapping)
 
 
+def extract_org_and_supplier(text: str) -> dict:
+    """
+    Extract organization name and supplier name from PDF text.
+
+    Looks for:
+      - Field 1A: НАИМЕНОВАНИЕ ОРГАНИЗАЦИИ / ФИО ИП  (client/org)
+      - Field 2A: НАИМЕНОВАНИЕ ПОСТАВЩИКА             (supplier)
+
+    pdfplumber collapses ALL spaces within a line, so the label and value
+    look like:
+      "1АНАИМЕНОВАНИЕОРГАНИЗАЦИИ/ФИОИП(ФАМИЛИЯ,ИМЯ,ОТЧЕСТВО1)"
+      "ОБЩЕСТВОСОГРАНИЧЕННОЙОТВЕТСТВЕННОСТЬЮ\"ЭЛКОМЭЛЕКТРО\""
+      "2АНАИМЕНОВАНИЕПОСТАВЩИКА"
+      "ООО\"ТорговыйдомЭКСПОРТТОРГ\""
+
+    Patterns are matched against the raw text (NOT normalize_chars'd):
+    normalize_chars converts Cyrillic A/E/O/... to Latin look-alikes which
+    would corrupt the Cyrillic label keywords used in the regex.
+
+    Returns:
+        dict with keys 'org' (str|None) and 'supplier' (str|None)
+    """
+    result = {"org": None, "supplier": None}
+
+    if not text:
+        return result
+
+    # ── Field 1А ──────────────────────────────────────────────────────────
+    # Strategy (a): pdfplumber collapsed — label on one line, value on next.
+    #   "1АНАИМЕНОВАНИЕОРГАНИЗАЦИИ...\n<value>\n"
+    # Strategy (b): fitz spaced — label on one line, value on next.
+    #   "1А НАИМЕНОВАНИЕ ОРГАНИЗАЦИИ...\n<value>\n"
+    # Strategy (c): fitz spaced — value inline after colon.
+    #   "1А НАИМЕНОВАНИЕ ОРГАНИЗАЦИИ...: <value>  2А"
+    org_patterns = [
+        # (a) collapsed label, value on next line
+        r'1[АA]НАИМЕНОВАНИЕОРГАНИЗАЦИИ[^\n]*\n\s*(.+?)\s*\n',
+        # (b) spaced label, value on next line
+        r'1[АA]\s+НАИМЕНОВАНИЕ\s+ОРГАНИЗАЦИИ[^\n]*\n\s*(.+?)\s*\n',
+        # (c) spaced label, value inline after colon
+        r'1[АA]\s*НАИМЕНОВАНИЕ\s*ОРГАНИЗАЦИИ[^\n]*?:\s*(.+?)(?:\s+2[АA]|\n|$)',
+    ]
+
+    for pat in org_patterns:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            val = m.group(1).strip()
+            if val:
+                result["org"] = val
+                break
+
+    # ── Field 2А ──────────────────────────────────────────────────────────
+    # Same two collapsed/spaced/inline strategies.
+    supplier_patterns = [
+        # (a) collapsed label, value on next line
+        r'2[АA]НАИМЕНОВАНИЕПОСТАВЩИКА[^\n]*\n\s*(.+?)\s*\n',
+        # (b) spaced label, value on next line
+        r'2[АA]\s+НАИМЕНОВАНИЕ\s+ПОСТАВЩИКА[^\n]*\n\s*(.+?)\s*\n',
+        # (c) spaced label, value inline after colon
+        r'2[АA]\s*НАИМЕНОВАНИЕ\s*ПОСТАВЩИКА[^\n]*?:\s*(.+?)(?:\s+[23][АAБBбb]|\n|$)',
+    ]
+
+    for pat in supplier_patterns:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            val = m.group(1).strip()
+            if val:
+                result["supplier"] = val
+                break
+
+    logger.debug(f"extract_org_and_supplier: org={result['org']!r}, supplier={result['supplier']!r}")
+    return result
+
+
 def find_vehicle_in_text(text: str, vehicle_number: str) -> bool:
     """Search for vehicle registration number in PDF text (Section 4.1)."""
     if not text or not vehicle_number:
