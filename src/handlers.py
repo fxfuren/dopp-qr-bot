@@ -917,7 +917,7 @@ async def _process_and_send_results(
 
         logger.info(f"Sent {len(qr_codes)} QR code(s) for {search_mode} {search_term}")
 
-        if search_mode == "vehicle" and len(qr_codes) > 1:
+        if search_mode == "vehicle":
             await send_notification_multi(
                 context=context,
                 driver_info=driver_info,
